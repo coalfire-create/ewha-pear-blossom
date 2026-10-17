@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import LanternLotus from './ok/lantern-lotus';
-import MetalFlower from './ok/metal-flower';
-import FrostedVeil from './ok/frosted-veil';
-import FloralThicket from './ok/floral-thicket';
-import PetalDrift from './ok/falling-canopy';
 import EnergyStream from './ok/energy-stream';
-import GlassPrism from './ok/glass-prism';
-import OrbitWords from './ok/text-orbit-marquee';
 import { EccValley } from './scene/ecc';
+import { buildTimeline } from './scene/timeline';
+import { buildVirtue } from './scene/virtue';
+import { buildPrism } from './scene/prism';
+import { buildFriends } from './scene/friends';
+import { buildSpring } from './scene/spring';
+import { buildSymbol } from './scene/symbol';
+import { buildCanopy } from './scene/canopy';
 
-const NIGHT = '#04110c';
 const MINT = '#8fdcb4';
 const PEAR = '#f4f5ee';
 const narrow = () => typeof window !== 'undefined' && window.innerWidth < 820;
@@ -24,6 +24,19 @@ function Stage({ children, className = '', margin = '40% 0px' }: { children: Rea
     return () => io.disconnect();
   }, [margin]);
   return <div ref={ref} className={`stage ${className}`}>{on && children}</div>;
+}
+
+type Built = { dispose(): void };
+
+// Hosts a hand-built three.js scene; builders may be async (font loading).
+function Scene3D({ build }: { build: (host: HTMLDivElement) => Built | Promise<Built> }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let alive = true, built: Built | null = null;
+    Promise.resolve(build(ref.current!)).then((b) => (alive ? (built = b) : b.dispose()));
+    return () => { alive = false; built?.dispose(); };
+  }, []);
+  return <div ref={ref} className="gl" />;
 }
 
 function useReveal() {
@@ -129,43 +142,38 @@ function Valley() {
   );
 }
 
-// Collegiate-gothic stone hall with pear trees in bloom, drawn as an SVG skyline.
-function Hall() {
-  const wins = [];
-  for (let i = 0; i < 14; i++) {
-    const x = 140 + i * 52 + (i >= 7 ? 64 : 0);
-    for (let r = 0; r < 2; r++) wins.push(<path key={`${i}-${r}`} d={`M${x} ${452 - r * 78}v-38q11 -18 22 0v38z`} className="hall__win" style={{ animationDelay: `${(i * 7 + r * 3) % 11 * 0.4}s` }} />);
-  }
-  const blossoms = [];
-  const rnd = (n: number) => (Math.sin(n * 91.7) * 43758.5453) % 1;
-  for (const [cx, cy, rr] of [[70, 420, 110], [930, 430, 120], [330, 500, 70], [690, 505, 75]] as const)
-    for (let k = 0; k < 46; k++) {
-      const a = Math.abs(rnd(cx + k)) * Math.PI * 2, d = Math.sqrt(Math.abs(rnd(cy + k * 3))) * rr;
-      blossoms.push(<circle key={`${cx}-${k}`} cx={cx + Math.cos(a) * d} cy={cy + Math.sin(a) * d * 0.62} r={5 + Math.abs(rnd(k + cx)) * 9} className="hall__bloom" />);
-    }
+// I · 1886–2026, flown through in 3D as the section scrolls.
+function Since() {
+  const sec = useRef<HTMLElement>(null);
+  const [step, setStep] = useState(0);
   return (
-    <svg viewBox="0 0 1000 560" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
-      <defs>
-        <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2b3a33" /><stop offset="1" stopColor="#0d1813" /></linearGradient>
-      </defs>
-      <g fill="url(#stone)">
-        <path d="M110 560V330h360v230zM530 560V330h360v230z" />
-        <path d="M110 330l180 -70l180 70zM530 330l180 -70l180 70z" />
-        <path d="M455 560V180h90v380z" />
-        <path d="M445 180h110v-16h-14v-12h-14v12h-14v-12h-14v12h-14v-12h-14v12h-14v-12h-12z" />
-        <path d="M455 180l-8 -40l8 0zM545 180l8 -40l-8 0z" />
-      </g>
-      <path d="M484 300v-52q16 -28 32 0v52z" className="hall__win hall__rose" />
-      {wins}
-      <g>{blossoms}</g>
-      <rect x="0" y="548" width="1000" height="12" fill="#04110c" />
-    </svg>
+    <section className="since" id="since" ref={sec}>
+      <div className="since__sticky">
+        <Stage><Scene3D build={(h) => buildTimeline(h, sec.current!, TIMELINE.map((t) => t[0]), setStep)} /></Stage>
+        <div className="since__shade" />
+        <div className="since__head">
+          <p className="eyebrow">I · Since 1886</p>
+          <h2>한 명의 학생으로 시작한 학교가<br /><span className="mint">한국 여성 교육의 첫 장</span>이 되기까지</h2>
+        </div>
+        <div className="valley__caps since__caps">
+          {TIMELINE.map(([y, t, d], i) => (
+            <article key={y} className={`cap glass ${i === step ? 'on' : ''}`}>
+              <span className="cap__k">{y}</span>
+              <h3>{t}</h3>
+              <p>{d}</p>
+            </article>
+          ))}
+        </div>
+        <ol className="since__dots">{TIMELINE.map(([y], i) => <li key={y} className={i <= step ? 'on' : ''}>{y}</li>)}</ol>
+      </div>
+    </section>
   );
 }
 
 export default function App() {
   useReveal();
   const m = narrow();
+  const springRef = useRef<HTMLElement>(null);
   return (
     <>
       <header className="nav">
@@ -198,30 +206,20 @@ export default function App() {
         <div className="hero__side"><span className="dot" />커서를 가까이 — 꽃이 당신 쪽으로 기웁니다</div>
       </section>
 
-      {/* I · SINCE — origin timeline */}
-      <section className="since" id="since">
-        <p className="eyebrow rv">I · Since 1886</p>
-        <h2 className="rv">한 명의 학생으로 시작한 학교가<br /><span className="mint">한국 여성 교육의 첫 장</span>이 되기까지</h2>
-        <ol className="timeline">
-          {TIMELINE.map(([y, t, d], i) => (
-            <li className="rv" key={y} style={{ transitionDelay: `${i * 80}ms` }}>
-              <span className="timeline__y">{y}</span>
-              <h3>{t}</h3>
-              <p>{d}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <Since />
 
-      {/* II · VIRTUE — 眞善美 behind frosted glass slats */}
+      {/* II · VIRTUE — 眞 glass, 善 jade, 美 pearl, extruded in 3D */}
       <section className="virtue" id="virtue">
-        <Stage className="virtue__stage">
-          <FrostedVeil background={NIGHT} baseColor="#06301f" accentColor="#3f9d74" highlight="#d8efe0" speed={60} hover={160} grain={40} vignette={90} veil={{ slats: m ? 7 : 14, frost: 120, refraction: 110, edge: 110 }} style={{ minWidth: 0, minHeight: 0 }} />
-        </Stage>
         <div className="virtue__inner">
           <p className="eyebrow rv">II · Motto</p>
           <h2 className="rv">진 · 선 · 미</h2>
           <p className="virtue__sub rv">Truth, Goodness, Beauty — 이화가 140년 동안 지켜 온 세 글자.</p>
+        </div>
+        <div className="virtue__stage">
+          <Stage><Scene3D build={buildVirtue} /></Stage>
+          <span className="symbol__hint">글자에 커서를 올려 보세요</span>
+        </div>
+        <div className="virtue__inner">
           <div className="pillars">
             {VIRTUES.map(([han, ko, en, d], i) => (
               <article className="pillar rv" key={han} style={{ transitionDelay: `${i * 120}ms` }}>
@@ -260,7 +258,7 @@ export default function App() {
       <section className="startup" id="startup">
         <div className="startup__prism rv">
           <Stage>
-            <GlassPrism glass="#8fe3b8" roomTop="#ffffff" roomBottom="#2f9a6a" highlight="#ffffff" sides={3} length={m ? 14 : 17} twist={2} edge={20} tilt={14} speed={6} sizePercent={m ? 110 : 95} />
+            <Scene3D build={buildPrism} />
           </Stage>
           <span className="symbol__hint">드래그하여 돌려보기</span>
         </div>
@@ -285,7 +283,7 @@ export default function App() {
       <section className="but" id="but">
         <div className="but__orbit">
           <Stage>
-            <OrbitWords text="벗 · 벗 · 벗 · " background="transparent" font={{ fontFamily: "'Noto Serif KR', serif", fontWeight: 900 }} color={PEAR} rings={m ? 5 : 7} size={m ? 300 : 520} lens={3.6} speed={42} advanced={{ repeats: 10, letterScale: 88, backOpacity: 30, tilt: 22 }} />
+            <Scene3D build={buildFriends} />
           </Stage>
           <span className="symbol__hint">드래그하여 굴려보기</span>
         </div>
@@ -303,16 +301,15 @@ export default function App() {
 
       <Valley />
 
-      {/* IV · SPRING — real pear petals falling over the stone campus */}
-      <section className="spring" id="spring">
+      {/* VII · SPRING — moonlit stone hall, pear trees in bloom, petals in the air */}
+      <section className="spring" id="spring" ref={springRef}>
         <Stage className="spring__stage">
-          <PetalDrift background="#06150f" baseColor={PEAR} accentColor="#ffe9ee" density={m ? 360 : 760} speed={50} direction={112} leaves={{ size: 20, spin: 80, sway: 120 }} cursor={{ push: 220, reach: 90 }} />
+          <Scene3D build={(h) => buildSpring(h, springRef.current!)} />
         </Stage>
-        <div className="spring__hall"><Hall /></div>
         <div className="spring__text">
           <p className="eyebrow rv">VII · Spring</p>
           <h2 className="rv">봄이 오면,<br />이화의 언덕에<br />배꽃이 내립니다.</h2>
-          <p className="rv">교명 ‘이화(梨花)’는 배꽃을 뜻합니다. 1935년 지어진 본관 파이퍼홀을 비롯한 석조 건물들 사이로, 해마다 봄이면 하얀 꽃잎이 내립니다. 커서로 꽃잎을 흩날려 보세요.</p>
+          <p className="rv">교명 ‘이화(梨花)’는 배꽃을 뜻합니다. 1935년 지어진 본관 파이퍼홀을 비롯한 석조 건물들 사이로, 해마다 봄이면 하얀 꽃잎이 내립니다.</p>
         </div>
       </section>
 
@@ -330,7 +327,7 @@ export default function App() {
         </div>
         <div className="symbol__flower rv">
           <Stage>
-            <MetalFlower tint="#ffffff" petals={5} rows={1} length={14} width={5} curl={2} cup={7} open={3} core={9} stem={0} spin={3} sizePercent={m ? 120 : 135} />
+            <Scene3D build={buildSymbol} />
           </Stage>
           <span className="symbol__hint">드래그하여 돌려보기</span>
         </div>
@@ -339,7 +336,7 @@ export default function App() {
       {/* FINALE */}
       <section className="finale" id="apply">
         <Stage className="finale__field">
-          <FloralThicket background={NIGHT} colors={[PEAR, '#ffffff', '#f6dde2', '#cfeedd']} density={m ? 5 : 6} speed={90} direction={262} gravity={40} falloff={75} depthFade={35} flowers={{ petals: 5, leafMix: 18, lineWeight: 30, scatter: 45 }} style={{ minWidth: 0, minHeight: 0 }} />
+          <Scene3D build={buildCanopy} />
         </Stage>
         <div className="finale__inner">
           <p className="eyebrow rv">IX · Invitation</p>

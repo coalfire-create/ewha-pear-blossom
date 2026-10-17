@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { branchGeometry, scatterBlossoms } from '../three/blossom';
 
 // A scroll-driven walk down the ECC "campus valley": a ramp cut into the
 // ground between two glass curtain walls, ending in the grand staircase that
@@ -71,7 +78,7 @@ const WALL_FRAG = /* glsl */ `
     vec3 interior = vec3(0.012, 0.03, 0.024);
     interior += lamp * on * 0.42 * pow(1.0 - ff, 2.2);
     float strip = smoothstep(0.11 + aay, 0.11, ff) * smoothstep(0.075 - aay, 0.075, ff);
-    interior += lamp * on * strip * 1.6;
+    interior += lamp * on * strip * 1.05;
     // silhouettes of shelves and people against the light
     float shelf = step(0.55, ff) * step(0.6, h21(vec2(pi * 0.5, fl + 9.0))) * step(0.15, pf) * step(pf, 0.85);
     interior *= 1.0 - shelf * 0.75 * on;
@@ -93,7 +100,7 @@ const WALL_FRAG = /* glsl */ `
     // a hairline of light along the top edge where the roof garden begins
     col += vec3(0.55, 0.9, 0.75) * smoothstep(-0.05, 0.0, vW.y) * 0.35;
 
-    gl_FragColor = vec4(applyFog(col, vW), 1.0);
+    gl_FragColor = vec4(pow(max(applyFog(col, vW), 0.0), vec3(2.2)), 1.0);
   }
 `;
 
@@ -113,7 +120,7 @@ const FLOOR_FRAG = /* glsl */ `
     col = mix(col, vec3(0.05), joint * 0.6);
     // a soft glowing line guiding the walk down the centre
     col += vec3(0.6, 1.0, 0.8) * exp(-abs(vW.x) * 6.0) * 0.12;
-    gl_FragColor = vec4(applyFog(col, vW), 1.0);
+    gl_FragColor = vec4(pow(max(applyFog(col, vW), 0.0), vec3(2.2)), 1.0);
   }
 `;
 
@@ -129,7 +136,7 @@ const SKY_FRAG = /* glsl */ `
     vec2 g = floor(d.xz / max(d.y, 0.05) * 140.0);
     float star = step(0.9975, h21(g)) * smoothstep(0.1, 0.5, d.y);
     col += vec3(star) * 0.8;
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(pow(col, vec3(2.2)), 1.0);
   }
 `;
 
@@ -165,7 +172,7 @@ const PETAL_FRAG = /* glsl */ `
     float a = smoothstep(0.42, 0.34, d) * vA;
     if (a < 0.01) discard;
     vec3 col = mix(vec3(1.0, 0.9, 0.92), vec3(1.0), smoothstep(-0.3, 0.3, q.y));
-    gl_FragColor = vec4(col, a * 0.9);
+    gl_FragColor = vec4(pow(col, vec3(2.2)), a * 0.9);
   }
 `;
 
@@ -175,7 +182,7 @@ const WINDOW_FRAG = /* glsl */ `
   void main() {
     // lit windows cut through the haze more than stone does
     float d = length(vW - cameraPosition);
-    gl_FragColor = vec4(mix(vec3(1.0, 0.82, 0.52) * 1.5, uFog, 1.0 - exp(-d * 0.005)), 1.0);
+    gl_FragColor = vec4(pow(mix(vec3(1.0, 0.82, 0.52) * 1.5, uFog, 1.0 - exp(-d * 0.005)), vec3(2.2)) * 0.9, 1.0);
   }
 `;
 
@@ -213,6 +220,7 @@ function floorGeometry() {
 
 export class EccValley {
   private renderer: THREE.WebGLRenderer;
+  private composer: EffectComposer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(62, 1, 0.1, 400);
   private uniforms = {
@@ -234,12 +242,23 @@ export class EccValley {
   private disposables: { dispose(): void }[] = [];
 
   constructor(private host: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, window.innerWidth < 820 ? 1.5 : 1.75));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     const el = this.renderer.domElement;
     el.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
     host.appendChild(el);
+    // MSAA + bloom so the lit glass, strip lights and stair glow actually glow
+    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.5, 0.86));
+    this.composer.addPass(new OutputPass());
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    this.disposables.push(env);
+    this.scene.environment = env;
+    this.scene.environmentIntensity = 0.3;
 
     const shader = (frag: string, extra: Record<string, THREE.IUniform> = {}, opts: THREE.ShaderMaterialParameters = {}) => {
       const m = new THREE.ShaderMaterial({ vertexShader: WALL_VERT, fragmentShader: frag, uniforms: { ...this.uniforms, ...extra }, ...opts });
@@ -273,7 +292,7 @@ export class EccValley {
     const run = (RAMP_END - STAIR_END) / steps;
     const rise = DEPTH / steps;
     const stepGeo = new THREE.BoxGeometry(HALF_W * 2, rise, Math.abs(run) + 0.02);
-    const stepMat = new THREE.MeshLambertMaterial({ color: '#b9bdb4' });
+    const stepMat = new THREE.MeshStandardMaterial({ color: '#b9bdb4', roughness: 0.7 });
     this.disposables.push(stepMat);
     const stairs = add(new THREE.InstancedMesh(stepGeo, stepMat, steps)) as THREE.InstancedMesh;
     const m4 = new THREE.Matrix4();
@@ -294,30 +313,54 @@ export class EccValley {
     plaza.rotation.x = -Math.PI / 2;
     plaza.position.set(0, 0, STAIR_END - 60);
 
-    // trees on the roof garden — some of them pear trees in bloom
-    const treeGeo = new THREE.IcosahedronGeometry(1, 1);
-    const treeMat = new THREE.MeshLambertMaterial({ vertexColors: false });
-    this.disposables.push(treeMat);
-    const trees = add(new THREE.InstancedMesh(treeGeo, treeMat, 160)) as THREE.InstancedMesh;
+    // roof garden: pear trees on real branches in bloom, among leafy trees
     const rnd = mulberry(7);
-    const col = new THREE.Color();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const v = new THREE.Vector3();
-    for (let i = 0; i < 160; i++) {
-      const side = i % 2 ? 1 : -1;
+    const leafy = new THREE.IcosahedronGeometry(1, 2);
+    const lp = leafy.attributes.position;
+    for (let i = 0; i < lp.count; i++) {
+      v.fromBufferAttribute(lp, i).multiplyScalar(0.85 + rnd() * 0.3);
+      lp.setXYZ(i, v.x, v.y, v.z);
+    }
+    leafy.computeVertexNormals();
+    const leafyMat = new THREE.MeshStandardMaterial({ color: '#1e3d2b', roughness: 0.9, flatShading: true });
+    this.disposables.push(leafyMat);
+    const greens = add(new THREE.InstancedMesh(leafy, leafyMat, 110)) as THREE.InstancedMesh;
+    const spot = () => {
+      const side = rnd() < 0.5 ? 1 : -1;
       const z = 10 - rnd() * 175;
       // past the stairs the camera stands on the lawn, so keep trees off its path
-      const x = side * (HALF_W + (z < RAMP_END ? 7 : 2.2) + rnd() * 26);
-      const r = 0.9 + rnd() * 1.3;
-      s.set(r, r * (1 + rnd() * 0.4), r);
-      v.set(x, r * 0.9, z);
-      trees.setMatrixAt(i, m4.compose(v, q, s));
-      trees.setColorAt(i, rnd() < 0.35 ? col.set('#e9eee6') : col.set('#1f3d2c'));
+      return new THREE.Vector3(side * (HALF_W + (z < RAMP_END ? 7 : 2.2) + rnd() * 26), 0, z);
+    };
+    for (let i = 0; i < 110; i++) {
+      const at = spot();
+      const r = 1 + rnd() * 1.4;
+      s.set(r, r * (1.1 + rnd() * 0.4), r);
+      v.set(at.x, r * 1.2 + 0.8, at.z);
+      greens.setMatrixAt(i, m4.compose(v, q.setFromEuler(new THREE.Euler(0, rnd() * 6, 0)), s));
+    }
+    const limbs: THREE.BufferGeometry[] = [];
+    const tips: THREE.Vector3[] = [];
+    const pears = window.innerWidth < 820 ? 22 : 36;
+    for (let i = 0; i < pears; i++) {
+      const at = spot();
+      const sc = 0.55 + rnd() * 0.35;
+      const r = branchGeometry(at, new THREE.Vector3((rnd() - 0.5) * 0.3, 1, (rnd() - 0.5) * 0.3), 2.6 * sc, 0.22 * sc, rnd, 2);
+      limbs.push(...r.out);
+      tips.push(...r.tips);
+    }
+    const barkMat = new THREE.MeshStandardMaterial({ color: '#2b211a', roughness: 0.95 });
+    this.disposables.push(barkMat);
+    add(new THREE.Mesh(mergeGeometries(limbs)!, barkMat));
+    for (const im of scatterBlossoms(tips, 5, 0.9, 0.24, rnd)) {
+      add(im);
+      this.disposables.push(im.material as THREE.Material);
     }
 
     // the stone campus waiting at the top of the stairs
-    const stoneMat = new THREE.MeshLambertMaterial({ color: '#8d8a80' });
+    const stoneMat = new THREE.MeshStandardMaterial({ color: '#6f6b62', roughness: 0.9 });
     this.disposables.push(stoneMat);
     const hallZ = STAIR_END - 62;
     const box = (w: number, h: number, d: number, x: number, y: number, z: number) => {
@@ -391,6 +434,7 @@ export class EccValley {
     const w = this.host.clientWidth || 1;
     const h = this.host.clientHeight || 1;
     this.renderer.setSize(w, h, false);
+    this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.fov = w / h < 0.8 ? 74 : 62;
     this.camera.updateProjectionMatrix();
@@ -411,7 +455,7 @@ export class EccValley {
     this.uniforms.uTime.value += dt;
     this.p += (this.target - this.p) * (1 - Math.exp(-dt * 5));
     this.place(this.p);
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   };
 
   private look = new THREE.Vector3();
@@ -445,6 +489,7 @@ export class EccValley {
     this.ro.disconnect();
     window.removeEventListener('pointermove', this.onPointer);
     this.disposables.forEach((d) => d.dispose());
+    this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
