@@ -4,6 +4,9 @@ import MetalFlower from './ok/metal-flower';
 import FrostedVeil from './ok/frosted-veil';
 import FloralThicket from './ok/floral-thicket';
 import PetalDrift from './ok/falling-canopy';
+import EnergyStream from './ok/energy-stream';
+import GlassPrism from './ok/glass-prism';
+import OrbitWords from './ok/text-orbit-marquee';
 import { EccValley } from './scene/ecc';
 
 const NIGHT = '#04110c';
@@ -54,7 +57,7 @@ const TIMELINE: [string, string, string][] = [
   ['1910', '대학과 설치', '한국 여성 고등교육이 이곳에서 처음 시작됩니다.'],
   ['1925', '이화여자전문학교', '전문학교로 승격하며 신촌 시대를 준비합니다.'],
   ['1946', '종합대학 인가', '이화여자대학교, 한국 최초의 종합대학으로 인가받습니다.'],
-  ['2026', '140주년', '한 명에서 시작한 배움이 140번째 봄을 맞습니다.'],
+  ['2026', '창립 140주년', '‘인간 중심 AI 대전환’을 새 비전으로 선포합니다.'],
 ];
 
 const VIRTUES: [string, string, string, string][] = [
@@ -62,6 +65,15 @@ const VIRTUES: [string, string, string, string][] = [
   ['善', '선', 'Goodness', '배운 것을 세상을 위해 쓰는 마음. 섬김과 나눔의 전통.'],
   ['美', '미', 'Beauty', '자신만의 결로 피어나는 아름다움. 삶을 가꾸는 감각.'],
 ];
+
+const AI_STEPS: [string, string][] = [
+  ['2022', '인공지능전공 신설'],
+  ['2023', '인공지능대학 설립'],
+  ['2024', '지능형반도체공학전공 신설'],
+  ['2025', '인공지능데이터사이언스학부 신설'],
+];
+
+const BUT_LINES = ['벗들, 이거 봤어?', '벗! 이거 떨어뜨리셨어요.', '벗은 어떻게 생각하세요?'];
 
 const ECC_CAPTIONS: [string, string, string][] = [
   ['2008', '땅을 갈라 만든 캠퍼스', '이화캠퍼스복합단지(ECC). 건물을 땅 위에 올리는 대신, 땅을 갈라 계곡을 냈습니다.'],
@@ -98,7 +110,7 @@ function Valley() {
         <div className="valley__gl" ref={host} />
         <div className="valley__shade" />
         <div className="valley__head">
-          <p className="eyebrow">III · Ewha Campus Complex</p>
+          <p className="eyebrow">VI · Ewha Campus Complex</p>
           <h2>계곡으로 걸어 내려가는 캠퍼스</h2>
         </div>
         <div className="valley__caps">
@@ -158,7 +170,7 @@ export default function App() {
     <>
       <header className="nav">
         <a href="#top" className="nav__logo"><span className="nav__mark">梨花</span>Ewha Womans University</a>
-        <nav className="nav__links"><a href="#since">1886</a><a href="#virtue">진·선·미</a><a href="#ecc">ECC</a><a href="#spring">배꽃</a><a href="#symbol">교화</a></nav>
+        <nav className="nav__links"><a href="#since">1886</a><a href="#ai">AI 대전환</a><a href="#startup">창업</a><a href="#but">벗</a><a href="#ecc">ECC</a><a href="#spring">배꽃</a></nav>
         <a className="nav__cta" href="https://admission.ewha.ac.kr" target="_blank" rel="noopener">입학 안내 ↗</a>
       </header>
 
@@ -181,6 +193,7 @@ export default function App() {
           <p className="kicker">EWHA WOMANS UNIVERSITY · SINCE 1886</p>
           <h1>가장 먼저 핀 꽃이<br />가장 멀리 갑니다</h1>
           <p className="hero__en">梨花 — where the pear blossoms first opened.</p>
+          <p className="hero__badge"><span>140th</span>EWHA THE WORLD, EWHA THE FUTURE</p>
         </div>
         <div className="hero__side"><span className="dot" />커서를 가까이 — 꽃이 당신 쪽으로 기웁니다</div>
       </section>
@@ -221,6 +234,73 @@ export default function App() {
         </div>
       </section>
 
+      {/* III · AI — 140th-anniversary vision over a 3D particle stream */}
+      <section className="ai" id="ai">
+        <Stage className="ai__stage">
+          <EnergyStream background="transparent" colors={[MINT, PEAR, '#4fbf8b', '#d9f3e6']} particles={m ? 90000 : 220000} size={m ? 4 : 4.5} shape={{ height: 11, waist: 1.7, flare: 4.5, twist: 0.6 }} core={{ show: true, diameter: 2.2, color: '#ffe6c4', spin: 2 }} glow={9} repel={10} flow={7} spin={3} lean={-18} camera={{ zoom: 6.4, turn: -180, elevation: 12 }} />
+        </Stage>
+        <div className="ai__copy">
+          <p className="eyebrow rv">III · Human-Centered AI</p>
+          <h2 className="rv">140주년의 선언,<br /><span className="mint">인간 중심 AI 대전환</span></h2>
+          <p className="ai__lead rv">2026년 5월, 창립 140주년 기념식에서 이화가 선언한 새 비전입니다. 첨단기술을 앞서 이끌되, 그 중심에는 언제나 사람의 존엄과 공동체를 둡니다.</p>
+          <ol className="ladder">
+            {AI_STEPS.map(([y, t], i) => (
+              <li className="rv" key={y} style={{ transitionDelay: `${i * 90}ms` }}><b>{y}</b><span>{t}</span></li>
+            ))}
+          </ol>
+          <div className="ai4all glass rv">
+            <span className="ai4all__tag">AI 4 All Ewha</span>
+            <p>인공지능 전공생이 아니어도 괜찮습니다. 인문·예술·사회과학 어느 전공이든, 모든 이화인이 AI 기초 역량을 갖추도록 설계한 전교생 AI 교육입니다.</p>
+          </div>
+        </div>
+        <div className="ai__hint">커서를 대면 입자가 비켜 흐릅니다</div>
+      </section>
+
+      {/* IV · STARTUP — a glass prism for ideas refracted into companies */}
+      <section className="startup" id="startup">
+        <div className="startup__prism rv">
+          <Stage>
+            <GlassPrism glass="#8fe3b8" roomTop="#ffffff" roomBottom="#2f9a6a" highlight="#ffffff" sides={3} length={m ? 14 : 17} twist={2} edge={20} tilt={14} speed={6} sizePercent={m ? 110 : 95} />
+          </Stage>
+          <span className="symbol__hint">드래그하여 돌려보기</span>
+        </div>
+        <div className="startup__copy">
+          <p className="eyebrow rv">IV · Women Founders</p>
+          <h2 className="rv">아이디어를 넘어,<br /><span className="mint">세계 무대의 창업으로</span></h2>
+          <article className="ces glass rv">
+            <span className="ces__k">CES 2026 · Innovation Awards</span>
+            <h3>2년 연속 CES 혁신상</h3>
+            <p>이화의 첫 CES 참가. 학생 창업기업 유니유니는 장애인 화장실 낙상·실신 감지 솔루션 ‘SAAVY’로 2025년에 이어 2026년에도 CES 혁신상을 받았습니다.</p>
+          </article>
+          <div className="stats stats--startup">
+            <div className="rv"><Count to={21} /><span>최근 4년 TIPS 선정 기업</span></div>
+            <div className="rv"><Count to={360} /><span>억 원 · 교원창업 투자유치(2024)</span></div>
+            <div className="rv"><Count to={67} /><span>입주 창업기업</span></div>
+          </div>
+          <p className="startup__award rv">2026 창업교육 우수대학 · 교육부 장관 표창</p>
+        </div>
+      </section>
+
+      {/* V · 벗 — the word Ewha students call each other, orbiting in 3D */}
+      <section className="but" id="but">
+        <div className="but__orbit">
+          <Stage>
+            <OrbitWords text="벗 · 벗 · 벗 · " background="transparent" font={{ fontFamily: "'Noto Serif KR', serif", fontWeight: 900 }} color={PEAR} rings={m ? 5 : 7} size={m ? 300 : 520} lens={3.6} speed={42} advanced={{ repeats: 10, letterScale: 88, backOpacity: 30, tilt: 22 }} />
+          </Stage>
+          <span className="symbol__hint">드래그하여 굴려보기</span>
+        </div>
+        <div className="but__copy">
+          <p className="eyebrow rv">V · Culture</p>
+          <h2 className="rv">우리는 서로를<br /><span className="mint">‘벗’</span>이라 부릅니다</h2>
+          <p className="rv">선배도 후배도, 나이도 학번도 묻지 않습니다. 2007년 학내 커뮤니티 ‘이화이언’에서 정해진 이 호칭은, 누구와도 동등하게 마주하는 이화의 수평적 문화가 되었습니다.</p>
+          <div className="bubbles">
+            {BUT_LINES.map((t, i) => (
+              <span className={`bubble rv ${i % 2 ? 'bubble--r' : ''}`} key={t} style={{ transitionDelay: `${i * 140}ms` }}>{t}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <Valley />
 
       {/* IV · SPRING — real pear petals falling over the stone campus */}
@@ -230,7 +310,7 @@ export default function App() {
         </Stage>
         <div className="spring__hall"><Hall /></div>
         <div className="spring__text">
-          <p className="eyebrow rv">IV · Spring</p>
+          <p className="eyebrow rv">VII · Spring</p>
           <h2 className="rv">봄이 오면,<br />이화의 언덕에<br />배꽃이 내립니다.</h2>
           <p className="rv">교명 ‘이화(梨花)’는 배꽃을 뜻합니다. 1935년 지어진 본관 파이퍼홀을 비롯한 석조 건물들 사이로, 해마다 봄이면 하얀 꽃잎이 내립니다. 커서로 꽃잎을 흩날려 보세요.</p>
         </div>
@@ -239,7 +319,7 @@ export default function App() {
       {/* V · SYMBOL — the school flower in porcelain, drag to turn */}
       <section className="symbol" id="symbol">
         <div className="symbol__copy">
-          <p className="eyebrow rv">V · School Flower</p>
+          <p className="eyebrow rv">VIII · School Flower</p>
           <h2 className="rv">교화(校花), <span className="mint">배꽃</span></h2>
           <p className="rv">다섯 장의 하얀 꽃잎. 화려하지 않지만 가장 이른 봄에 먼저 피어 계절을 엽니다. 이화가 처음 여성에게 배움의 문을 연 것처럼.</p>
           <div className="stats">
@@ -262,8 +342,8 @@ export default function App() {
           <FloralThicket background={NIGHT} colors={[PEAR, '#ffffff', '#f6dde2', '#cfeedd']} density={m ? 5 : 6} speed={90} direction={262} gravity={40} falloff={75} depthFade={35} flowers={{ petals: 5, leafMix: 18, lineWeight: 30, scatter: 45 }} style={{ minWidth: 0, minHeight: 0 }} />
         </Stage>
         <div className="finale__inner">
-          <p className="eyebrow rv">VI · Invitation</p>
-          <h2 className="rv">다음 봄에 피어날 꽃은,<br />당신의 이름입니다.</h2>
+          <p className="eyebrow rv">IX · Invitation</p>
+          <h2 className="rv">다음 봄에 피어날 꽃은,<br />바로 당신입니다, 벗.</h2>
           <a className="btn rv" href="https://admission.ewha.ac.kr" target="_blank" rel="noopener">입학처 바로가기 →</a>
         </div>
         <footer className="footer">
