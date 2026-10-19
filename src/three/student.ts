@@ -26,7 +26,7 @@ export type HairStyle = 'bun' | 'braid' | 'long' | 'bob' | 'ponytail';
 export interface FigureParts { top: THREE.BufferGeometry; bottom: THREE.BufferGeometry; fixed: THREE.BufferGeometry }
 
 const SKIN = new THREE.Color('#f1d0bb');
-const HAIR = new THREE.Color('#17110f');
+const HAIR = new THREE.Color('#21160f');
 const WHITE = new THREE.Color('#ffffff');
 
 /** Where each figure's lantern body sits, in figure space. */
@@ -339,7 +339,7 @@ const merge = (list: THREE.BufferGeometry[]) => mergeGeometries(list.filter(Bool
 
 // ──────────────────────────────────────────────────────────────── head ──
 
-const FRONT_PROFILE: [number, number][] = [[-0.105, 0.03], [-0.103, 0.05], [-0.097, 0.065], [-0.085, 0.075], [-0.067, 0.081], [-0.045, 0.085], [-0.02, 0.087], [0.02, 0.0875]];
+const FRONT_PROFILE: [number, number][] = [[-0.093, 0.046], [-0.091, 0.062], [-0.08, 0.074], [-0.066, 0.081], [-0.048, 0.0855], [-0.02, 0.0875], [0.02, 0.0875]];
 function frontProfile(y: number) {
   const P = FRONT_PROFILE;
   if (y <= P[0][0]) return P[0][1];
@@ -347,32 +347,24 @@ function frontProfile(y: number) {
   return P[P.length - 1][1];
 }
 
-/** Facial relief added in front: sockets, brow, cheekbones, nose, lips, chin. */
+/** Facial relief added in front: soft sockets, apple cheeks, a small nose, soft lips, a round chin. */
 function faceRelief(x: number, y: number, z: number) {
   if (z <= 0) return 0;
   const ax = Math.abs(x);
   let d = 0;
-  d -= 0.0075 * g2(ax, y, 0.031, 0.0, 0.017, 0.011); // eye sockets
-  d += 0.0032 * g2(ax, y, 0.028, 0.02, 0.022, 0.0065); // brow ridge
-  d += 0.0045 * g2(ax, y, 0.047, -0.026, 0.017, 0.016); // cheekbones
-  d += 0.0025 * g2(ax, y, 0.03, -0.047, 0.02, 0.018); // soft cheeks
-  d -= 0.003 * g2(ax, y, 0.066, 0.035, 0.012, 0.02); // temples
-  // nose: narrow bridge growing to a rounded tip, alae either side
-  const tip = -0.036, bt = ss(0.016, tip, y);
-  const h = y > tip ? 0.0035 * ss(0.03, 0.012, y) + 0.0165 * Math.pow(bt, 1.5) : 0.02 * ss(tip - 0.011, tip, y);
-  d += h * Math.exp(-((x / lerp(0.0062, 0.0102, bt)) ** 2));
-  d += 0.0035 * g2(x, y, 0, tip + 0.002, 0.009, 0.0065);
-  d += 0.0062 * g2(ax, y, 0.0125, -0.0405, 0.0062, 0.0052);
-  d -= 0.002 * g2(ax, y, 0.0075, -0.0465, 0.004, 0.0025);
-  // mouth
-  d -= 0.0012 * g2(x, y, 0, -0.053, 0.004, 0.006); // philtrum
-  d += 0.0052 * g2(x, y, 0, -0.0605, 0.0172, 0.0045); // upper lip
-  d += 0.0014 * g2(ax, y, 0.005, -0.0578, 0.004, 0.002); // cupid's bow
-  d += 0.0058 * g2(x, y, 0, -0.0735, 0.015, 0.0052); // lower lip
-  d -= 0.0036 * g2(x, y, 0, -0.0668, 0.0195, 0.0013); // lip line
-  d -= 0.0018 * g2(ax, y, 0.021, -0.067, 0.004, 0.004); // corners
-  d -= 0.002 * g2(x, y, 0, -0.083, 0.015, 0.0035); // under the lip
-  d += 0.0035 * g2(x, y, 0, -0.096, 0.016, 0.009); // chin
+  d -= 0.0028 * g2(ax, y, 0.031, 0.002, 0.017, 0.011); // shallow eye sockets
+  d += 0.0016 * g2(ax, y, 0.029, 0.021, 0.022, 0.0065); // brow
+  d += 0.0042 * g2(ax, y, 0.043, -0.027, 0.02, 0.018); // apple cheeks
+  d -= 0.002 * g2(ax, y, 0.066, 0.035, 0.012, 0.02); // temples
+  // nose: just a soft rise and a rounded tip. Any real underside faces the
+  // ground and reads as a dark smudge from a distance, so there is none
+  d += 0.0032 * g2(x, y, 0, -0.024, 0.0075, 0.012);
+  d += 0.0016 * g2(x, y, 0, -0.03, 0.007, 0.0045);
+  // lips: soft fullness, a faint parting line
+  d += 0.0026 * g2(x, y, 0, -0.0535, 0.0135, 0.004);
+  d += 0.0032 * g2(x, y, 0, -0.0625, 0.0118, 0.0046);
+  d -= 0.0009 * g2(x, y, 0, -0.0578, 0.0135, 0.0011);
+  d += 0.0028 * g2(x, y, 0, -0.084, 0.017, 0.01); // round chin
   return d * ss(0.0, 0.05, z);
 }
 
@@ -380,12 +372,14 @@ const _hn = V();
 /** Map a unit direction to the head surface (head-centre space, metres-ish). */
 function headSurface(d: THREE.Vector3, out: THREE.Vector3, features = true) {
   const t = ss(-0.1, 0.95, -d.y);
-  let x = d.x * 0.0715 * (1 - 0.3 * Math.pow(t, 1.4));
-  const y = d.y * 0.105;
+  // an oval face: full cheeks, a short soft jaw and a rounded chin
+  const ex = 1 - 0.16 * ss(0.05, -0.65, d.y);
+  let x = Math.sign(d.x) * Math.abs(d.x) ** ex * 0.0725 * (1 - 0.14 * Math.pow(t, 1.8));
+  const y = d.y * (d.y < 0 ? 0.093 : 0.105);
   let z: number;
   if (d.z >= 0) {
     const mid = Math.sqrt(Math.max(0, 1 - d.y * d.y)) * 0.088 * (1 - 0.05 * t);
-    const ratio = y < 0.02 ? frontProfile(y) / Math.max(mid, 0.004) : 1;
+    const ratio = lerp(1, frontProfile(y) / Math.max(mid, 0.004), ss(0.035, 0.0, y));
     z = d.z * 0.088 * (1 - 0.05 * t) * ratio;
   } else {
     z = d.z * 0.097 * (1 - 0.52 * t) * (1 + 0.06 * Math.exp(-(((d.y - 0.15) / 0.45) ** 2)));
@@ -410,23 +404,24 @@ function deformHead(g: THREE.BufferGeometry, features = true) {
 }
 
 function skinTint(skin: THREE.Color) {
-  const lip = new THREE.Color('#c9727a'), blush = new THREE.Color('#ec9f94'), lid = new THREE.Color('#c68f84'), c = new THREE.Color();
+  const lip = new THREE.Color('#d98a86'), blush = new THREE.Color('#f2a99c'), c = new THREE.Color();
   return (p: THREE.Vector3) => {
     c.copy(skin);
     if (p.z > 0.02) {
       const ax = Math.abs(p.x);
-      const wl = clamp(1.3 * g2(p.x, p.y, 0, -0.0605, 0.0165, 0.0046) + 1.3 * g2(p.x, p.y, 0, -0.0735, 0.0148, 0.0056), 0, 1);
-      c.lerp(blush, 0.3 * g2(ax, p.y, 0.045, -0.034, 0.02, 0.017));
-      c.lerp(lid, 0.22 * g2(ax, p.y, 0.031, 0.01, 0.017, 0.006));
-      c.lerp(blush, 0.14 * g2(p.x, p.y, 0, -0.037, 0.008, 0.006));
-      c.lerp(lip, wl * 0.85);
+      const wl = clamp(1.25 * g2(p.x, p.y, 0, -0.0538, 0.0128, 0.0036) + 1.25 * g2(p.x, p.y, 0, -0.0625, 0.0112, 0.0042), 0, 1);
+      c.lerp(blush, 0.26 * g2(ax, p.y, 0.043, -0.03, 0.017, 0.013));
+      c.lerp(blush, 0.08 * g2(p.x, p.y, 0, -0.032, 0.007, 0.005));
+      c.lerp(lip, wl * 0.72);
     }
     return c;
   };
 }
 
-interface FaceKit { head: THREE.BufferGeometry; lids: THREE.BufferGeometry; ears: THREE.BufferGeometry; eyes: THREE.BufferGeometry; lashes: THREE.BufferGeometry; brows: THREE.BufferGeometry }
+interface FaceKit { head: THREE.BufferGeometry; ears: THREE.BufferGeometry; eyes: THREE.BufferGeometry; lashes: THREE.BufferGeometry; brows: THREE.BufferGeometry }
 let kit: FaceKit | null = null;
+/** z of the sculpted face surface at (x, y), head-centre space; set when the kit is built. */
+let faceZ: (x: number, y: number) => number = () => 0.08;
 
 /** The face is the same for everyone (only colours change), so it is sculpted once. */
 function faceKit(): FaceKit {
@@ -438,50 +433,46 @@ function faceKit(): FaceKit {
     ray.set(V(x, y, 0.3), V(0, 0, -1));
     return ray.intersectObject(probe, false)[0]?.point.z ?? 0.08;
   };
+  faceZ = zAt;
 
-  const R = 0.0118, lidR = R * 1.07, lidTheta = 1.18, tilt = 0.12;
-  const eyes: THREE.BufferGeometry[] = [], lids: THREE.BufferGeometry[] = [], lashes: THREE.BufferGeometry[] = [], brows: THREE.BufferGeometry[] = [];
-  const sclera = new THREE.Color('#f3eee9'), pink = new THREE.Color('#e7c9c2'), irisIn = new THREE.Color('#6a4229'), irisOut = new THREE.Color('#2a170e'), limbus = new THREE.Color('#120a06'), pupil = new THREE.Color('#060404');
+  const eyes: THREE.BufferGeometry[] = [], lashes: THREE.BufferGeometry[] = [], brows: THREE.BufferGeometry[] = [];
+  const irisIn = new THREE.Color('#5a3524'), irisOut = new THREE.Color('#140c09'), shine = new THREE.Color('#ffffff');
+  const EW = 0.0096, EH = 0.0066, tilt = 0.1;
   for (const sx of [-1, 1]) {
-    const c = V(sx * 0.0315, 0.0008, 0);
-    c.z = zAt(c.x, c.y) + 0.0035 - R;
-    // eyeball with iris and pupil painted on its front
-    const ball = new THREE.SphereGeometry(R, 48, 32);
+    const c = V(sx * 0.0305, 0.002, 0);
+    c.z = zAt(c.x, c.y);
+    // a dark almond set into the face: warm brown in the middle, near black at the rim and the top
     const col = new THREE.Color();
-    paint(ball, (p) => {
-      const ang = Math.acos(clamp(p.z / R, -1, 1));
-      const rad = Math.atan2(p.y, p.x);
-      if (ang < 0.16) return col.copy(pupil);
-      if (ang < 0.43) {
-        const k = (ang - 0.16) / 0.27;
-        col.copy(irisIn).lerp(irisOut, k * 0.8).multiplyScalar(0.85 + 0.3 * hash(Math.floor(rad * 40)));
-        return k > 0.86 ? col.lerp(limbus, (k - 0.86) / 0.14) : col;
-      }
-      return col.copy(sclera).lerp(pink, ss(1.0, 1.6, ang) * 0.6);
+    const eye = new THREE.SphereGeometry(1, 40, 20);
+    paint(eye, (p) => {
+      const r = Math.hypot(p.x, p.y);
+      return col.copy(irisIn).lerp(irisOut, clamp(ss(0.25, 0.95, r) + ss(-0.1, 0.9, p.y) * 0.55, 0, 1));
     });
-    eyes.push(ball.translate(c.x, c.y, c.z));
-    // eyelids: spherical shells over the ball, tilted so the outer corners lift
-    const up = new THREE.SphereGeometry(lidR, 48, 16, 0, Math.PI * 2, 0, lidTheta);
-    const lo = new THREE.SphereGeometry(R * 1.06, 48, 12, 0, Math.PI * 2, Math.PI - 1.02, 1.02);
-    for (const l of [up, lo]) lids.push(l.rotateZ(sx * tilt).translate(c.x, c.y, c.z));
-    // lash line along the upper lid edge with a small wing at the outer corner
+    eye.scale(EW, EH, 0.003).rotateZ(sx * tilt).translate(c.x, c.y, c.z - 0.0009);
+    eyes.push(eye);
+    // catch-lights, up and toward the light, so the eyes read as alive
+    eyes.push(paint(new THREE.SphereGeometry(0.0017, 12, 8).translate(c.x - 0.0026, c.y + 0.0021, c.z + 0.0021), shine));
+    eyes.push(paint(new THREE.SphereGeometry(0.0008, 8, 6).translate(c.x + 0.0028, c.y - 0.0022, c.z + 0.0019), shine));
+    // upper lash line hugging the almond, with a small lift at the outer corner
     const pts: THREE.Vector3[] = [];
     const rz = new THREE.Matrix4().makeRotationZ(sx * tilt);
-    for (let k = 0; k <= 14; k++) {
-      const ph = lerp(-sx * 1.0, sx * 1.12, k / 14);
-      pts.push(V(Math.sin(ph) * Math.sin(lidTheta), Math.cos(lidTheta), Math.cos(ph) * Math.sin(lidTheta)).multiplyScalar(lidR * 1.02).applyMatrix4(rz).add(c));
+    for (let k = 0; k <= 16; k++) {
+      const a = lerp(Math.PI * 0.98, Math.PI * 0.02, k / 16);
+      const q = V(sx * Math.cos(a) * EW * 1.08, Math.sin(a) * EH * 1.12, 0).applyMatrix4(rz).add(c);
+      q.z = zAt(q.x, q.y) + 0.0007;
+      pts.push(q);
     }
     const last = pts[pts.length - 1];
-    pts.push(last.clone().add(V(sx * 0.0035, 0.0012, -0.0016)), last.clone().add(V(sx * 0.006, 0.0026, -0.0034)));
-    lashes.push(sweep(pts, { segs: 36, radial: 6, w: (t) => 0.0007 + 0.0006 * Math.sin(Math.PI * Math.min(1, t * 1.1)), h: 0.0005, up: () => V(0, 0, 1) }));
-    // eyebrow: soft, nearly straight, thicker at the inner end
+    pts.push(last.clone().add(V(sx * 0.0024, 0.0013, -0.0006)));
+    lashes.push(sweep(pts, { segs: 36, radial: 6, w: (t) => 0.0006 + 0.0011 * Math.sin(Math.PI * Math.min(1, t * 1.05)), h: 0.0006, up: () => V(0, 0, 1) }));
+    // eyebrow: soft, gently arched, fuller at the inner end
     const bp: THREE.Vector3[] = [];
     for (let k = 0; k <= 12; k++) {
-      const u = k / 12, x = sx * lerp(0.0115, 0.0525, u);
-      const y = 0.0222 + 0.0036 * Math.sin(Math.PI * Math.min(1, u * 1.25)) - 0.0035 * u;
-      bp.push(V(x, y, zAt(x, y) + 0.0009));
+      const u = k / 12, x = sx * lerp(0.0115, 0.049, u);
+      const y = 0.0205 + 0.0042 * Math.sin(Math.PI * Math.min(1, u * 1.15)) - 0.003 * u;
+      bp.push(V(x, y, zAt(x, y) + 0.0008));
     }
-    brows.push(sweep(bp, { segs: 28, radial: 6, w: (t) => lerp(0.0027, 0.0008, t), h: 0.0006, up: (p) => V(p.x * 6, 0, 1) }));
+    brows.push(sweep(bp, { segs: 28, radial: 6, w: (t) => lerp(0.0022, 0.0007, t), h: 0.0005, up: (p) => V(p.x * 6, 0, 1) }));
   }
 
   // ears: a shell, a rolled helix rim, tragus and lobe; built on +x then mirrored
@@ -497,14 +488,14 @@ function faceKit(): FaceKit {
     return g;
   };
   const ears = merge([earR(), mirrorX(earR())]);
-  kit = { head, lids: merge(lids.map((g) => paint(g, WHITE))), ears, eyes: merge(eyes), lashes: merge(lashes.map((g) => paint(g, WHITE))), brows: merge(brows.map((g) => paint(g, WHITE))) };
+  kit = { head, ears, eyes: merge(eyes), lashes: merge(lashes.map((g) => paint(g, WHITE))), brows: merge(brows.map((g) => paint(g, WHITE))) };
   return kit;
 }
 
 // ──────────────────────────────────────────────────────────────── hair ──
 
 /** Where the hairline sits (head-centre y) for each azimuth θ (0 = front). */
-const HAIRLINE: [number, number][] = [[0, 0.075], [0.3, 0.073], [0.55, 0.064], [0.8, 0.048], [1.05, 0.026], [1.28, 0.006], [1.42, 0.016], [1.62, 0.024], [1.86, 0.012], [2.1, -0.025], [2.5, -0.068], [Math.PI, -0.086]];
+const HAIRLINE: [number, number][] = [[0, 0.056], [0.3, 0.055], [0.55, 0.05], [0.8, 0.04], [1.05, 0.026], [1.28, 0.006], [1.42, 0.016], [1.62, 0.024], [1.86, 0.012], [2.1, -0.025], [2.5, -0.068], [Math.PI, -0.086]];
 function hairlineY(theta: number) {
   const a = Math.min(Math.abs(theta), Math.PI);
   for (let i = 0; i < HAIRLINE.length - 1; i++) {
@@ -545,7 +536,7 @@ function hairShell(style: HairStyle, res: number, base: THREE.Color, partX = 0) 
       const s = j / PH, phi = pm * s;
       scalp(th, phi, 0, p);
       dn.copy(_sd);
-      let lift = lerp(0.0078, 0.0016, ss(0.55, 1, s));
+      let lift = lerp(0.0115, 0.0022, ss(0.45, 1, s));
       const v = pulled ? Math.atan2(p.y - B.y, p.z - B.z) : th;
       const u = pulled ? p.distanceTo(B) * 10 : phi;
       const fade = ss(0.0, 0.12, s);
@@ -650,12 +641,59 @@ function fallPath(theta: number, phi0: number, lift: number, f: Fall) {
 
 const strandUp = (p: THREE.Vector3) => V(p.x, p.y * 0.35, p.z);
 
-function clump(pts: THREE.Vector3[], width: number, thick: number, base: THREE.Color, k: number, segs = 30) {
-  const g = sweep(pts, { segs, radial: 8, w: (t) => width * (1 - 0.72 * t ** 2.2), h: (t) => thick * (1 - 0.6 * t), up: strandUp, caps: true });
+function clump(pts: THREE.Vector3[], width: number, thick: number, base: THREE.Color, k: number, segs = 30, blunt = false) {
+  const g = sweep(pts, { segs, radial: 8, w: (t) => width * (1 - (blunt ? 0.3 * t ** 4 : 0.72 * t ** 2.2)), h: (t) => thick * (1 - 0.6 * t), up: strandUp, caps: true });
   const c = new THREE.Color();
   return paint(g, (_p, i, gg) => {
     const t = gg.attributes.uv.getX(i), a = gg.attributes.uv.getY(i);
     return c.copy(base).multiplyScalar(k * (0.85 + 0.2 * t) * (0.9 + 0.18 * Math.sin(a * Math.PI * 6 + k * 9)));
+  });
+}
+
+/**
+ * The solid mass under loose hair: a shell from the crown down to the ends,
+ * open at the face, with soft strand streaks. Strand clumps lie over it, so
+ * there are never gaps showing the scalp or the neck.
+ */
+function hairVolume(len: 'bob' | 'long', base: THREE.Color, partX: number, res = 1) {
+  // above the ears the mass hugs the skull (a little thicker toward the ears),
+  // so its edge disappears under the combed scalp; below, it hangs free
+  const hug: Ring[] = [];
+  const e = V(), q = V();
+  for (const y of [0.0, 0.03, 0.055, 0.075, 0.088]) {
+    const dy = y / 0.105, r = Math.sqrt(1 - dy * dy), t = lerp(0.0045, 0.016, ss(0.088, 0.0, y));
+    const side = headSurface(e.set(r, dy, 0), q, false).x;
+    const front = headSurface(e.set(0, dy, r), q, false).z;
+    const back = -headSurface(e.set(0, dy, -r), q, false).z;
+    hug.push({ y, w: side + t, f: front + t, b: back + t * 1.15, z: 0 });
+  }
+  const hang: Ring[] = len === 'long' ? [
+    { y: -0.31, w: 0.086, f: 0.04, b: 0.13, z: -0.036 },
+    { y: -0.22, w: 0.096, f: 0.058, b: 0.13, z: -0.026 },
+    { y: -0.13, w: 0.09, f: 0.07, b: 0.118, z: -0.014 },
+    { y: -0.06, w: 0.087, f: 0.08, b: 0.11, z: -0.006 },
+  ] : [
+    { y: -0.118, w: 0.083, f: 0.07, b: 0.098, z: -0.008 },
+    { y: -0.1, w: 0.088, f: 0.078, b: 0.108, z: -0.006 },
+    { y: -0.05, w: 0.089, f: 0.084, b: 0.111, z: -0.003 },
+  ];
+  const rings = [...hang, ...hug];
+  // open over the face; the opening narrows below the jaw for long hair
+  const g = loft(rings, { radial: Math.round(96 * res), sub: Math.max(2, Math.round(6 * res)), arc: [0.72, Math.PI * 2 - 0.72] });
+  const c = new THREE.Color();
+  // tuck the bob's ends under
+  if (len === 'bob') {
+    const P = g.attributes.position;
+    for (let i = 0; i < P.count; i++) {
+      const y = P.getY(i), k = ss(-0.1, -0.118, y);
+      if (k > 0) P.setXYZ(i, P.getX(i) * (1 - 0.1 * k), y + 0.004 * k, (P.getZ(i) + 0.006) * (1 - 0.1 * k) - 0.006);
+    }
+    g.computeVertexNormals();
+  }
+  return paint(g, (_p, i, gg) => {
+    const a = gg.attributes.uv.getX(i) * Math.PI * 2, v = gg.attributes.uv.getY(i);
+    const streak = 0.5 + 0.5 * Math.sin(a * 70 + 2.3 * Math.sin(a * 13 + partX * 90));
+    return c.copy(base).multiplyScalar((0.74 + 0.22 * streak) * (0.86 + 0.18 * v));
   });
 }
 
@@ -670,25 +708,28 @@ function buildHair(style: HairStyle, base: THREE.Color, seed: number, accent: TH
   let body: THREE.BufferGeometry | undefined, pins: THREE.BufferGeometry | undefined, tie: THREE.BufferGeometry | undefined;
 
   if (style === 'long' || style === 'bob') {
-    const M = 84;
+    (style === 'bob' ? parts : fall).push(hairVolume(style, base, partX));
+    const M = 64;
     for (let layer = 0; layer < 2; layer++)
       for (let k = 0; k < M; k++) {
         const th = -Math.PI + (2 * Math.PI * (k + 0.5 + layer * 0.5)) / M + (rnd() - 0.5) * 0.03;
-        if (Math.abs(th) < 0.5) continue;
+        if (Math.abs(th) < 1.1) continue; // the volume frames the face; strands start beside it
         const faceSide = Math.abs(th) < 1.25 ? Math.sign(th) : 0;
         const frontness = Math.max(0, Math.cos(th));
-        const yEnd = style === 'bob' ? -0.112 - 0.022 * frontness + (rnd() - 0.5) * 0.008 : (layer ? -0.27 : -0.33) + (rnd() - 0.5) * 0.04;
-        const lift = 0.0062 + layer * 0.0028 + rnd() * 0.0016;
-        const pts = fallPath(th, layer ? 0.45 + rnd() * 0.25 : 0.12 + rnd() * 0.12, lift, { yEnd, margin: 0.007 + layer * 0.004, faceSide, curl: style === 'bob' ? 1 : 0.35 });
-        if (pts.length > 3) (style === 'bob' ? parts : fall).push(clump(pts, 0.0105 + rnd() * 0.004, 0.0024, base, 0.85 + rnd() * 0.3, style === 'bob' ? 26 : 40));
+        const yEnd = style === 'bob' ? -0.106 - 0.012 * frontness + (rnd() - 0.5) * 0.004 : (layer ? -0.27 : -0.31) + (rnd() - 0.5) * 0.02;
+        const lift = 0.0085 + layer * 0.0025 + rnd() * 0.001;
+        const pe = phiMax(th);
+        const pts = fallPath(th, pe - (layer ? 0.18 : 0.32) - rnd() * 0.1, lift, { yEnd, margin: 0.011 + layer * 0.004, faceSide, curl: style === 'bob' ? 0.9 : 0.25 });
+        if (pts.length > 3) (style === 'bob' ? parts : fall).push(clump(pts, 0.014 + rnd() * 0.005, 0.003, base, 0.88 + rnd() * 0.22, style === 'bob' ? 26 : 40, style === 'bob'));
       }
-    // see-through bangs
+    // soft, airy bangs that just reach the brows
     if (seed < 0.75) {
-      for (let k = 0; k < 30; k++) {
-        const x0 = lerp(-0.043, 0.043, k / 29) + (rnd() - 0.5) * 0.003;
+      for (let k = 0; k < 26; k++) {
+        const x0 = lerp(-0.046, 0.046, k / 25) + (rnd() - 0.5) * 0.002;
         const th = Math.asin(clamp(x0 / 0.075, -1, 1));
-        const pts = fallPath(th, 0.38 + rnd() * 0.08, 0.006, { yEnd: 0.026 + 0.004 * Math.sin(k * 1.7) + (rnd() - 0.5) * 0.004, margin: 0.0035 });
-        if (pts.length > 3) parts.push(clump(pts, 0.0058 + rnd() * 0.002, 0.0016, base, 0.9 + rnd() * 0.2, 22));
+        const edge = Math.abs(x0) / 0.046;
+        const pts = fallPath(th, 0.36 + rnd() * 0.06, 0.0085, { yEnd: 0.03 - 0.008 * edge * edge + (rnd() - 0.5) * 0.002, margin: 0.005, curl: 0.4 });
+        if (pts.length > 3) parts.push(clump(pts, 0.0095 + rnd() * 0.002, 0.0022, base, 0.92 + rnd() * 0.16, 22));
       }
     }
   }
@@ -707,12 +748,8 @@ function buildHair(style: HairStyle, base: THREE.Color, seed: number, accent: TH
         pts.push(p.clone());
       }
       // tips gather toward the middle
-      pts.forEach((q, i) => (q.x *= 1 - 0.55 * ss(0.5, 1, i / (pts.length - 1))));
-      fall.push(clump(pts, 0.0095 + rnd() * 0.004, 0.0026, base, 0.85 + rnd() * 0.3, 40));
-    }
-    for (const sx of [-1, 1]) {
-      const pts = fallPath(sx * 0.78, 0.5, 0.004, { yEnd: -0.085, margin: 0.004, faceSide: sx });
-      if (pts.length > 3) parts.push(clump(pts, 0.004, 0.0013, base, 1.05, 24));
+      pts.forEach((q, i) => (q.x *= 1 - 0.45 * ss(0.55, 1, i / (pts.length - 1))));
+      fall.push(clump(pts, 0.013 + rnd() * 0.005, 0.0034, base, 0.88 + rnd() * 0.24, 40));
     }
     const sc = new THREE.TorusGeometry(0.016, 0.0085, 14, 40);
     const P = sc.attributes.position, q = V();
@@ -1156,11 +1193,10 @@ export function rig(look: RigLook, materials?: { cloth?: THREE.Material; skin?: 
   head.add(face);
   const fk = faceKit();
   const tint = skinTint(skinC);
-  const lidC = skinC.clone().multiplyScalar(0.93);
-  face.add(M(merge([paint(fk.head.clone(), tint), paint(fk.lids.clone(), lidC), paint(fk.ears.clone(), skinC.clone().multiplyScalar(0.97))]), skinMat));
+  face.add(M(merge([paint(fk.head.clone(), tint), paint(fk.ears.clone(), skinC.clone().multiplyScalar(0.97))]), skinMat));
   face.add(M(fk.eyes.clone(), eyeMat));
-  const browC = hairC.clone().lerp(new THREE.Color('#3a271c'), 0.6);
-  face.add(M(merge([hairBuild.head, paint(fk.brows.clone(), browC), paint(fk.lashes.clone(), '#0e0908')]), hairMat));
+  const browC = hairC.clone().lerp(new THREE.Color('#5a4030'), 0.65);
+  face.add(M(merge([hairBuild.head, paint(fk.brows.clone(), browC), paint(fk.lashes.clone(), '#120c0a')]), hairMat));
   if (hairBuild.pins) face.add(M(hairBuild.pins, goldMat));
   if (hairBuild.tie && hairStyle !== 'braid') face.add(M(hairBuild.tie, clothMat));
   root.add(head);
@@ -1377,10 +1413,16 @@ export function figure(era: Era, hi = false, pose: CrowdPose = 'lantern', hair: 
   const RR = hi ? 48 : 14;
   const at = (g: THREE.BufferGeometry) => g.translate(HEAD_AT.x, HEAD_AT.y, HEAD_AT.z);
 
-  fixed.push(at(paint(deformHead(new THREE.SphereGeometry(1, hi ? 64 : 16, hi ? 48 : 12)), skinTint(SKIN))));
-  for (const sx of [-1, 1]) fixed.push(paint(at(new THREE.SphereGeometry(0.0085, 8, 6).translate(sx * 0.031, 0.001, 0.074)), '#1a1210'));
+  fixed.push(at(paint(deformHead(new THREE.SphereGeometry(1, hi ? 64 : 32, hi ? 48 : 22)), skinTint(SKIN))));
+  faceKit();
+  for (const sx of [-1, 1]) {
+    const ex = sx * 0.0305, ey = 0.002;
+    fixed.push(paint(at(new THREE.SphereGeometry(1, hi ? 16 : 10, hi ? 10 : 6).scale(0.0105, 0.0072, 0.003).rotateZ(sx * 0.1).translate(ex, ey, faceZ(ex, ey) - 0.0004)), '#21140e'));
+    fixed.push(paint(at(new THREE.SphereGeometry(0.0019, 6, 4).translate(ex - 0.0026, ey + 0.0022, faceZ(ex, ey) + 0.0024)), '#ffffff'));
+    fixed.push(paint(at(new THREE.BoxGeometry(0.03, 0.0026, 0.002).rotateZ(-sx * 0.12).translate(sx * 0.03, 0.022, faceZ(sx * 0.03, 0.022) + 0.0006)), '#4a3326'));
+  }
   const style: HairStyle = era === 'hanbok' ? 'bun' : era === 'uniform' ? 'braid' : hair;
-  fixed.push(at(hairShell(style, hi ? 0.4 : 0.12, HAIR)));
+  fixed.push(at(hairShell(style, hi ? 0.4 : 0.2, HAIR)));
   if (style === 'bun') {
     fixed.push(paint(at(new THREE.SphereGeometry(1, 10, 8).scale(0.046, 0.028, 0.026).translate(BUN_AT.x, BUN_AT.y, BUN_AT.z - 0.006)), HAIR));
     fixed.push(paint(at(new THREE.CylinderGeometry(0.004, 0.004, 0.17, 5).rotateZ(Math.PI / 2).translate(0, BUN_AT.y, BUN_AT.z - 0.02)), '#c9a560'));
@@ -1390,20 +1432,7 @@ export function figure(era: Era, hi = false, pose: CrowdPose = 'lantern', hair: 
   } else if (style === 'ponytail') {
     fixed.push(paint(sweep([V(0, 1.43, -0.1), V(0, 1.4, -0.135), V(0, 1.3, -0.14), V(0, 1.2, -0.125)], { segs: 10, radial: 7, w: (t) => 0.026 * (1 - 0.55 * t), caps: true }), HAIR));
   } else {
-    const curtain: Ring[] = hair === 'long' ? [
-      { y: -0.3, w: 0.09, f: 0.05, b: 0.15, z: -0.03 },
-      { y: -0.2, w: 0.094, f: 0.07, b: 0.135, z: -0.018 },
-      { y: -0.125, w: 0.083, f: 0.076, b: 0.11, z: -0.008 },
-      { y: -0.06, w: 0.085, f: 0.084, b: 0.108, z: -0.004 },
-      { y: 0.0, w: 0.088, f: 0.09, b: 0.112, z: -0.002 },
-      { y: 0.04, w: 0.083, f: 0.085, b: 0.108, z: 0 },
-    ] : [
-      { y: -0.125, w: 0.078, f: 0.072, b: 0.098, z: -0.006 },
-      { y: -0.06, w: 0.085, f: 0.084, b: 0.108, z: -0.004 },
-      { y: 0.0, w: 0.088, f: 0.09, b: 0.112, z: -0.002 },
-      { y: 0.04, w: 0.083, f: 0.085, b: 0.108, z: 0 },
-    ];
-    fixed.push(paint(at(loft(curtain, { radial: 14, sub: 1, arc: [0.62, Math.PI * 2 - 0.62] })), HAIR));
+    fixed.push(at(hairVolume(hair, HAIR, 0, hi ? 0.6 : 0.3)));
   }
   fixed.push(paint(loft(NECK, { radial: 10, sub: 1 }), SKIN));
 
