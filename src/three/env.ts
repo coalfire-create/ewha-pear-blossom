@@ -218,7 +218,7 @@ export function skyDome(radius: number, sunDir: THREE.Vector3, c: SkyColors) {
           float detail = fbm(uv * 3.1 + 7.0);
           vec3 cc = mix(uCloud, uCloudShade, thick * (0.55 + detail * 0.45) * (1.0 - toward * 0.35));
           cc += uSunCol * (1.0 - thick) * (pow(s, 5.0) * 1.4 + toward * 0.25); // silver lining
-          c = mix(c, cc, cov * smoothstep(0.0, 0.14, y) * 0.95);
+          c = mix(c, cc, cov * smoothstep(0.05, 0.38, y) * 0.95); // thin out toward the horizon so clouds never stack into a wall
         }
         gl_FragColor = vec4(c, 1.0);
       }`,

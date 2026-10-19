@@ -225,6 +225,10 @@ function oakTexture(seed: number) {
 }
 
 let cache: { granite: PBRMaps; dressed: PBRMaps; slate: PBRMaps; atlas: THREE.CanvasTexture; oak: THREE.CanvasTexture } | null = null;
+/** The shared granite, dressed stone, slate, window atlas and oak textures. */
+export function hallTextures() {
+  return textures();
+}
 function textures() {
   return (cache ??= {
     granite: stoneMaps(1935, 2048, 16, { tone: 150, spread: 34, rock: 1, joint: 5, strength: 20, warm: 9, mortar: [150, 146, 136] }),
@@ -238,10 +242,10 @@ function textures() {
 // ---------------------------------------------------------------------------
 // Geometry kit: everything is collected per material and merged at the end.
 
-type Key = 'stone' | 'trim' | 'slate' | 'copper' | 'oak' | 'iron' | 'glass' | 'dark' | 'lamp';
+export type Key = 'stone' | 'trim' | 'slate' | 'copper' | 'oak' | 'iron' | 'glass' | 'dark' | 'lamp';
 const KEYS: Key[] = ['stone', 'trim', 'slate', 'copper', 'oak', 'iron', 'glass', 'dark', 'lamp'];
 
-class Kit {
+export class Kit {
   b = Object.fromEntries(KEYS.map((k) => [k, [] as THREE.BufferGeometry[]])) as Record<Key, THREE.BufferGeometry[]>;
   m = new THREE.Matrix4();
   put(key: Key, g: THREE.BufferGeometry) {
@@ -268,7 +272,7 @@ class Kit {
 }
 
 /** Box-projected UVs per triangle, so courses line up across every face. */
-function triplanar(g: THREE.BufferGeometry, tile: number) {
+export function triplanar(g: THREE.BufferGeometry, tile: number) {
   const p = g.attributes.position, uv = g.attributes.uv;
   const a = new V3(), b = new V3(), c = new V3(), n = new V3();
   for (let i = 0; i < p.count; i += 3) {
@@ -303,7 +307,7 @@ function archPts(cx: number, y0: number, w: number, h: number, n = 22) {
   return pts;
 }
 
-interface Op { x: number; y: number; w: number; h: number; kind: 'rect' | 'arch' | 'round' | 'portal'; lights?: number }
+export interface Op { x: number; y: number; w: number; h: number; kind: 'rect' | 'arch' | 'round' | 'portal'; lights?: number }
 
 function outline(op: Op): THREE.Vector2[] {
   const a = op.w / 2;
@@ -332,8 +336,31 @@ function wedge(w: number, d: number, hh: number) {
 
 export interface Hall { group: THREE.Group; glass: THREE.MeshStandardMaterial; windows: THREE.Object3D[]; dispose(): void }
 
-/** Builds the hall with its front face at z = +5 (tower and pavilions at +6), centred on x = 0. */
-export function buildHall(opts: { glow?: number } = {}): Hall {
+/** The gothic vocabulary handed to a custom plan (see buildHall's `plan`). */
+export interface Gothic {
+  K: Kit;
+  facade(x: number, z: number, ry: number, W: number, H: number, T: number, ops: Op[], gable?: number, y0?: number): void;
+  bands(x: number, z: number, ry: number, W: number, levels: number[]): void;
+  battlement(x: number, y: number, z: number, ry: number, W: number, corbels?: boolean): void;
+  buttress(x: number, z: number, ry: number, H: number, w: number, d: number, pinnacleTop?: boolean): void;
+  pinnacle(x: number, y: number, z: number, s: number): void;
+  turret(x: number, z: number, r: number, H: number): void;
+  roof(x: number, z: number, ry: number, len: number, ridgeY: number, run: number, angle: number, over?: number, overBack?: number): void;
+  /** iron bracket lantern projecting from a wall face at z (local +z out) */
+  lantern(x: number, y: number, z: number): void;
+  archPts: typeof archPts;
+  rise: typeof rise;
+  wedge: typeof wedge;
+  tubeAlong: typeof tubeAlong;
+}
+/** What a custom plan returns: where ivy grows ([x, face z, spread, max height]) and the doorway light. */
+export interface PlanResult { ivy?: [number, number, number, number][]; door?: THREE.Vector3 }
+
+/**
+ * Builds the hall with its front face at z = +5 (tower and pavilions at +6), centred on x = 0.
+ * Pass `plan` to lay out a different building with the same stone, glass and vocabulary.
+ */
+export function buildHall(opts: { glow?: number } = {}, plan?: (g: Gothic) => PlanResult | void): Hall {
   const rnd = mulberry(31);
   const tex = textures();
   const K = new Kit();
@@ -613,6 +640,45 @@ export function buildHall(opts: { glow?: number } = {}): Hall {
     });
   };
 
+  const lampPos: THREE.Vector3[] = [];
+  const lantern = (x: number, y: number, z: number) => {
+    K.box('iron', 0.08, 0.08, 0.62, x, y + 0.5, z + 0.31);
+    const brace = new THREE.BoxGeometry(0.05, 0.62, 0.05);
+    brace.rotateX(0.85);
+    brace.translate(x, y + 0.27, z + 0.2);
+    K.put('iron', brace);
+    const lx = x, ly = y + 0.05, lz = z + 0.6;
+    const glassL = new THREE.CylinderGeometry(0.17, 0.13, 0.44, 6);
+    glassL.translate(lx, ly, lz);
+    K.put('lamp', glassL);
+    for (let k = 0; k < 6; k++) {
+      const t = (k / 6) * Math.PI * 2;
+      const bar = new THREE.BoxGeometry(0.025, 0.46, 0.025);
+      bar.translate(lx + Math.sin(t) * 0.16, ly, lz + Math.cos(t) * 0.16);
+      K.put('iron', bar);
+    }
+    const cap = new THREE.ConeGeometry(0.25, 0.22, 6);
+    cap.translate(lx, ly + 0.33, lz);
+    K.put('iron', cap);
+    const base = new THREE.CylinderGeometry(0.15, 0.06, 0.12, 6);
+    base.translate(lx, ly - 0.28, lz);
+    K.put('iron', base);
+    const hook = new THREE.TorusGeometry(0.07, 0.02, 6, 16);
+    hook.translate(lx, ly + 0.5, lz);
+    K.put('iron', hook);
+    lampPos.push(new V3(lx, ly, lz + 0.1));
+  };
+
+  let ivySeeds: [number, number, number, number][] = [ // x, face z, spread, max height
+    [-6.3, 5, 1.2, 9.5], [6.3, 5, 1.0, 7], [-17.2, 5, 1.4, 11], [17.3, 5, 1.0, 6],
+    [-19.1, 6, 0.8, 12], [19.1, 6, 0.9, 9], [-22.9, 6, 0.8, 7], [22.9, 6, 0.8, 5], [-3.55, 6, 0.6, 13], [3.6, 6, 0.5, 6],
+  ];
+  let doorAt = new V3(0, 3, 9);
+  if (plan) {
+    const r = plan({ K, facade, bands, battlement, buttress, pinnacle, turret, roof, lantern, archPts, rise, wedge, tubeAlong });
+    if (r?.ivy) ivySeeds = r.ivy;
+    if (r?.door) doorAt = r.door;
+  } else {
   // ── central tower ────────────────────────────────────────────────────────
   const TH = 26;
   const portal: Op = { x: 0, y: 0.9, w: 4.2, h: 6.2, kind: 'portal' };
@@ -707,35 +773,7 @@ export function buildHall(opts: { glow?: number } = {}): Hall {
     pinnacle(sx * 4.55, 1.39, 9.45, 0.4);
   }
   // lanterns on iron brackets either side of the portal
-  const lampPos: THREE.Vector3[] = [];
-  for (const sx of [-1, 1]) {
-    const x = sx * 3.1, y = 4.6, z = 6;
-    K.box('iron', 0.08, 0.08, 0.62, x, y + 0.5, z + 0.31);
-    const brace = new THREE.BoxGeometry(0.05, 0.62, 0.05);
-    brace.rotateX(0.85);
-    brace.translate(x, y + 0.27, z + 0.2);
-    K.put('iron', brace);
-    const lx = x, ly = y + 0.05, lz = z + 0.6;
-    const glassL = new THREE.CylinderGeometry(0.17, 0.13, 0.44, 6);
-    glassL.translate(lx, ly, lz);
-    K.put('lamp', glassL);
-    for (let k = 0; k < 6; k++) {
-      const t = (k / 6) * Math.PI * 2;
-      const bar = new THREE.BoxGeometry(0.025, 0.46, 0.025);
-      bar.translate(lx + Math.sin(t) * 0.16, ly, lz + Math.cos(t) * 0.16);
-      K.put('iron', bar);
-    }
-    const cap = new THREE.ConeGeometry(0.25, 0.22, 6);
-    cap.translate(lx, ly + 0.33, lz);
-    K.put('iron', cap);
-    const base = new THREE.CylinderGeometry(0.15, 0.06, 0.12, 6);
-    base.translate(lx, ly - 0.28, lz);
-    K.put('iron', base);
-    const hook = new THREE.TorusGeometry(0.07, 0.02, 6, 16);
-    hook.translate(lx, ly + 0.5, lz);
-    K.put('iron', hook);
-    lampPos.push(new V3(lx, ly, lz + 0.1));
-  }
+  for (const sx of [-1, 1]) lantern(sx * 3.1, 4.6, 6);
 
   // ── wings ────────────────────────────────────────────────────────────────
   const WH = 12, WA = 52 * (Math.PI / 180);
@@ -817,6 +855,7 @@ export function buildHall(opts: { glow?: number } = {}): Hall {
     for (const s2 of [-1, 1]) buttress(cx + s2 * 2.65, 6, 0, PH - 1.6, 0.7, 1.0, true);
     roof(cx, 0.3, Math.PI / 2, 10.9, PH + 0.1 + gable, 3, PA, 0.5);
   }
+  }
 
   // ── merge per material ───────────────────────────────────────────────────
   const granite = tex.granite, dressed = tex.dressed;
@@ -853,10 +892,7 @@ export function buildHall(opts: { glow?: number } = {}): Hall {
   const leafGeo = new THREE.ShapeGeometry(leaf, 6);
   const IVY = 9000;
   const ivy = new THREE.InstancedMesh(leafGeo, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.5, metalness: 0 }), IVY);
-  const seeds: [number, number, number, number][] = [ // x, face z, spread, max height
-    [-6.3, 5, 1.2, 9.5], [6.3, 5, 1.0, 7], [-17.2, 5, 1.4, 11], [17.3, 5, 1.0, 6],
-    [-19.1, 6, 0.8, 12], [19.1, 6, 0.9, 9], [-22.9, 6, 0.8, 7], [22.9, 6, 0.8, 5], [-3.55, 6, 0.6, 13], [3.6, 6, 0.5, 6],
-  ];
+  const seeds = ivySeeds;
   const blocked = (x: number, y: number, z: number) => openings.some((o) => o.z === z && x > o.x0 && x < o.x1 && y > o.y0 && y < o.y1);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new V3(), p = new V3(), e = new THREE.Euler(), col = new THREE.Color();
   const greens = ['#1f3d1a', '#2a4d1f', '#335a24', '#24451c', '#3d6a2a', '#1a3315'];
@@ -891,7 +927,7 @@ export function buildHall(opts: { glow?: number } = {}): Hall {
 
   // warm light spilling from the doorway and the two lanterns
   const doorLight = new THREE.PointLight('#ffcf8a', 30, 18, 1.6);
-  doorLight.position.set(0, 3, 9);
+  doorLight.position.copy(doorAt);
   hall.add(doorLight);
   for (const lp of lampPos) {
     const l = new THREE.PointLight('#ffc77a', 8, 9, 1.7);

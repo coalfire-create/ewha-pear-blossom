@@ -113,22 +113,27 @@ function folds(base: THREE.ColorRepresentation, depth = 0.4, extra?: (p: THREE.V
 /** Normals averaged across seams and poles so lofted / swept skins read as one surface. */
 function smoothNormals(g: THREE.BufferGeometry) {
   g.computeVertexNormals();
-  const P = g.attributes.position, N = g.attributes.normal;
-  const groups = new Map<string, number[]>();
-  for (let i = 0; i < P.count; i++) {
-    const key = `${Math.round(P.getX(i) * 2e5)},${Math.round(P.getY(i) * 2e5)},${Math.round(P.getZ(i) * 2e5)}`;
-    const l = groups.get(key);
-    if (l) l.push(i);
-    else groups.set(key, [i]);
+  const pa = g.attributes.position.array as Float32Array, na = g.attributes.normal.array as Float32Array;
+  const n = pa.length / 3;
+  // exact numeric key from 17-bit quantised coordinates (0.05 mm, figures span < ±3 m)
+  const first = new Map<number, number>();
+  const next = new Int32Array(n).fill(-1);
+  const head = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    const key = Math.round((pa[i * 3] + 3) * 2e4) * 17179869184 + Math.round((pa[i * 3 + 1] + 3) * 2e4) * 131072 + Math.round((pa[i * 3 + 2] + 3) * 2e4);
+    const h = first.get(key);
+    if (h === undefined) { first.set(key, i); head[i] = i; }
+    else { next[i] = next[h]; next[h] = i; head[i] = h; }
   }
-  const s = V();
-  for (const l of groups.values()) {
-    if (l.length < 2) continue;
-    s.set(0, 0, 0);
-    for (const i of l) s.x += N.getX(i), s.y += N.getY(i), s.z += N.getZ(i);
-    s.normalize();
-    for (const i of l) N.setXYZ(i, s.x, s.y, s.z);
+  for (let i = 0; i < n; i++) {
+    if (head[i] !== i || next[i] < 0) continue;
+    let x = 0, y = 0, z = 0;
+    for (let j = i; j >= 0; j = next[j]) { x += na[j * 3]; y += na[j * 3 + 1]; z += na[j * 3 + 2]; }
+    const l = Math.hypot(x, y, z) || 1;
+    x /= l; y /= l; z /= l;
+    for (let j = i; j >= 0; j = next[j]) { na[j * 3] = x; na[j * 3 + 1] = y; na[j * 3 + 2] = z; }
   }
+  g.attributes.normal.needsUpdate = true;
   return g;
 }
 
@@ -1353,8 +1358,19 @@ export function stride(r: Rig, ph: number, amt = 1) {
 
 // ───────────────────────────────────────────────────────────── crowd ──
 
-/** Light-weight instanced student: a few thousand triangles, hands on a lantern cord. */
-export function figure(era: Era, hi = false): FigureParts {
+/** Height of the seat surface under a 'sit' figure, in figure space (hips rest on it). */
+export const SEAT_H = 0.8;
+
+/** What an instanced crowd figure is doing with her arms and legs. */
+export type CrowdPose = 'lantern' | 'stand' | 'sit' | 'phone' | 'book';
+
+/**
+ * Light-weight instanced student: a few thousand triangles. By default she
+ * holds a lantern cord in both hands; `pose` gives standing, seated (hips at
+ * y ≈ SEAT_H above the seat, feet hanging), phone-up and book-reading variants,
+ * and `hair` picks the modern hairstyle.
+ */
+export function figure(era: Era, hi = false, pose: CrowdPose = 'lantern', hair: 'bob' | 'long' | 'ponytail' = 'bob'): FigureParts {
   const top: THREE.BufferGeometry[] = [];
   const bottom: THREE.BufferGeometry[] = [];
   const fixed: THREE.BufferGeometry[] = [];
@@ -1363,7 +1379,7 @@ export function figure(era: Era, hi = false): FigureParts {
 
   fixed.push(at(paint(deformHead(new THREE.SphereGeometry(1, hi ? 64 : 16, hi ? 48 : 12)), skinTint(SKIN))));
   for (const sx of [-1, 1]) fixed.push(paint(at(new THREE.SphereGeometry(0.0085, 8, 6).translate(sx * 0.031, 0.001, 0.074)), '#1a1210'));
-  const style: HairStyle = era === 'hanbok' ? 'bun' : era === 'uniform' ? 'braid' : 'bob';
+  const style: HairStyle = era === 'hanbok' ? 'bun' : era === 'uniform' ? 'braid' : hair;
   fixed.push(at(hairShell(style, hi ? 0.4 : 0.12, HAIR)));
   if (style === 'bun') {
     fixed.push(paint(at(new THREE.SphereGeometry(1, 10, 8).scale(0.046, 0.028, 0.026).translate(BUN_AT.x, BUN_AT.y, BUN_AT.z - 0.006)), HAIR));
@@ -1371,8 +1387,17 @@ export function figure(era: Era, hi = false): FigureParts {
   } else if (style === 'braid') {
     fixed.push(paint(sweep([V(0, 1.36, -0.072), V(0, 1.24, -0.108), V(0, 1.1, -0.11), V(0, 0.97, -0.137)], { segs: 12, radial: 6, w: (t) => 0.015 * (1 - 0.3 * t), caps: true }), HAIR));
     fixed.push(paint(new THREE.BoxGeometry(0.06, 0.022, 0.01).translate(0, 0.97, -0.147), '#2a1d22'));
+  } else if (style === 'ponytail') {
+    fixed.push(paint(sweep([V(0, 1.43, -0.1), V(0, 1.4, -0.135), V(0, 1.3, -0.14), V(0, 1.2, -0.125)], { segs: 10, radial: 7, w: (t) => 0.026 * (1 - 0.55 * t), caps: true }), HAIR));
   } else {
-    const curtain: Ring[] = [
+    const curtain: Ring[] = hair === 'long' ? [
+      { y: -0.3, w: 0.09, f: 0.05, b: 0.15, z: -0.03 },
+      { y: -0.2, w: 0.094, f: 0.07, b: 0.135, z: -0.018 },
+      { y: -0.125, w: 0.083, f: 0.076, b: 0.11, z: -0.008 },
+      { y: -0.06, w: 0.085, f: 0.084, b: 0.108, z: -0.004 },
+      { y: 0.0, w: 0.088, f: 0.09, b: 0.112, z: -0.002 },
+      { y: 0.04, w: 0.083, f: 0.085, b: 0.108, z: 0 },
+    ] : [
       { y: -0.125, w: 0.078, f: 0.072, b: 0.098, z: -0.006 },
       { y: -0.06, w: 0.085, f: 0.084, b: 0.108, z: -0.004 },
       { y: 0.0, w: 0.088, f: 0.09, b: 0.112, z: -0.002 },
@@ -1406,6 +1431,13 @@ export function figure(era: Era, hi = false): FigureParts {
     top.push(paint(loft(shirt, { radial: RR, sub: hi ? 4 : 1 }), WHITE));
     bottom.push(paint(loft(grow(clip(BODY, 0.7, 0.99), 0.009), { radial: RR, sub: 1, capBottom: true }), WHITE));
     for (const sx of [-1, 1]) {
+      if (pose === 'sit') {
+        // thighs forward on the seat, shins hanging over its edge
+        const legPts = [V(sx * HIP.x, 0.9, HIP.z), V(sx * HIP.x * 1.05, 0.885, 0.24), V(sx * HIP.x * 1.1, 0.87, 0.44), V(sx * HIP.x * 1.1, 0.66, 0.47), V(sx * HIP.x * 1.1, 0.48, 0.47)];
+        bottom.push(paint(sweep(legPts, { segs: hi ? 20 : 8, radial: hi ? 16 : 8, w: (t) => lerp(0.085, 0.05, t) }), WHITE));
+        fixed.push(paint(new THREE.BoxGeometry(0.08, 0.06, 0.22).translate(sx * HIP.x * 1.1, 0.45, 0.52), '#f2f2ee'));
+        continue;
+      }
       const legPts = [V(sx * HIP.x, 0.9, HIP.z), V(sx * HIP.x, 0.45, HIP.z), V(sx * HIP.x * 0.95, 0.08, HIP.z)];
       bottom.push(paint(sweep(legPts, { segs: hi ? 16 : 4, radial: hi ? 16 : 8, w: (t) => lerp(0.085, 0.05, t) }), WHITE));
       fixed.push(paint(new THREE.BoxGeometry(0.08, 0.06, 0.22).translate(sx * HIP.x * 0.95, 0.03, 0.05), '#f2f2ee'));
@@ -1423,7 +1455,14 @@ export function figure(era: Era, hi = false): FigureParts {
     wrist.position.y = -FORE_L;
     fore.add(wrist);
     a.userData = { fore, wrist, L1: UPPER_L, L2: FORE_L + GRIP_L, era } satisfies ArmData;
-    POSE.holdFront(a, sx);
+    if (pose === 'lantern') POSE.holdFront(a, sx);
+    else if (pose === 'stand') {
+      if (era === 'modern') reachTo(a, T_.set(sx * 0.2, 0.83, 0.05), P_.set(sx * 0.2, 0, -1), 0);
+      else POSE.rest(a, sx);
+    } else if (pose === 'sit') reachTo(a, T_.set(sx * 0.11, 0.96, 0.3), P_.set(sx, -0.6, -0.6), 0.2);
+    else if (pose === 'book') reachTo(a, T_.set(sx * 0.07, 1.08, 0.3), P_.set(sx, -0.8, -0.4), 0.3);
+    else if (sx > 0) reachTo(a, T_.set(0.09, 1.42, 0.36), P_.set(1, -0.6, -0.3), 0); // phone held up
+    else reachTo(a, T_.set(-0.2, 0.83, 0.05), P_.set(-0.2, 0, -1), 0);
     a.updateMatrixWorld(true);
     const S = a.position.clone().add(V(0, 0.02, 0));
     const E = fore.getWorldPosition(V()), W = wrist.getWorldPosition(V());
@@ -1431,7 +1470,9 @@ export function figure(era: Era, hi = false): FigureParts {
     top.push(paint(sweep([S, E, W], { segs: hi ? 24 : 8, radial: hi ? 16 : 8, w: (t) => lerp(0.055, era === 'hanbok' ? 0.05 : 0.036, t), caps: true }), WHITE));
     fixed.push(paint(new THREE.SphereGeometry(1, hi ? 16 : 8, hi ? 12 : 6).scale(0.016, 0.034, 0.028).translate(grip.x, grip.y, grip.z), SKIN));
   }
-  fixed.push(paint(new THREE.CylinderGeometry(0.002, 0.002, 0.11, 4).translate(LANTERN_GRIP.x, LANTERN_GRIP.y - 0.055, LANTERN_GRIP.z), '#3a2a1c'));
+  if (pose === 'lantern') fixed.push(paint(new THREE.CylinderGeometry(0.002, 0.002, 0.11, 4).translate(LANTERN_GRIP.x, LANTERN_GRIP.y - 0.055, LANTERN_GRIP.z), '#3a2a1c'));
+  if (pose === 'book') fixed.push(paint(new THREE.BoxGeometry(0.16, 0.012, 0.21).rotateX(-0.9).translate(0, 1.1, 0.33), '#f4efe2'));
+  if (pose === 'phone') fixed.push(paint(new THREE.BoxGeometry(0.075, 0.15, 0.009).translate(0.09, 1.47, 0.37), '#1b1d22'));
 
   const clean = (list: THREE.BufferGeometry[]) => merge(list.map((g) => {
     for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color'].includes(k)) g.deleteAttribute(k);
