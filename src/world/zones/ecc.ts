@@ -67,7 +67,7 @@ export function buildEccZone(ctx: BuildCtx): Zone {
   const add = <T extends THREE.Object3D>(o: T) => (group.add(o), o);
 
   // valley floor of pale granite slabs, sloping down to the stairs
-  const paver = keep(paverMaps(2008, 2048));
+  const paver = keep(paverMaps(2008, lite ? 1024 : 2048));
   const floorGeo = new THREE.PlaneGeometry(W * 2, START - RAMP_END + 2, 1, 240);
   floorGeo.rotateX(-Math.PI / 2);
   floorGeo.translate(0, 0, (START + RAMP_END) / 2 - 1);
@@ -81,12 +81,12 @@ export function buildEccZone(ctx: BuildCtx): Zone {
   floor.receiveShadow = true;
 
   // ── the grand stairs: a central flight with nosings, timber seating terraces either side
-  const steps = 44;
+  const steps = ECC.STEPS;
   const run = Math.abs((RAMP_END - STAIR_END) / steps), rise = DEPTH / steps;
   // dressed granite blocks: one slab per face, with a fine arris and speckle
   const block = keep(paverMaps(9, 1024, { cols: 1, rows: 1, tone: [214, 208, 198], spread: 0, joint: 0.6 }));
   const stoneStep = new THREE.MeshStandardMaterial({ map: block.map, normalMap: block.normalMap, roughnessMap: block.roughnessMap, roughness: 1 });
-  const CW = 4.2; // half width of the central flight
+  const CW = ECC.CW; // half width of the central flight
   const stairs = new THREE.InstancedMesh(new THREE.BoxGeometry(CW * 2, rise, run + 0.02), stoneStep, steps);
   const nosing = new THREE.InstancedMesh(new THREE.BoxGeometry(CW * 2, 0.025, 0.07), new THREE.MeshStandardMaterial({ color: '#5d5a55', roughness: 0.6, metalness: 0.4 }), steps);
   const m4 = new THREE.Matrix4();

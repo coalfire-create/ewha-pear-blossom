@@ -3,6 +3,7 @@ import { buildTerrain } from './terrain';
 import { buildGate } from './gate';
 import { buildEccZone } from './ecc';
 import { buildPfeiffer } from './pfeiffer';
+import { buildQuad } from './quad';
 import { buildAuditorium } from './auditorium';
 import { buildAvenue } from './avenue';
 import { buildLawn } from './lawn';
@@ -14,6 +15,7 @@ export const ZONES: Record<string, ZoneBuilder> = {
   gate: buildGate,
   ecc: buildEccZone,
   pfeiffer: buildPfeiffer,
+  quad: buildQuad,
   auditorium: buildAuditorium,
   avenue: buildAvenue,
   lawn: buildLawn,

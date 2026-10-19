@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Studio, mulberry, narrow } from '../three/studio';
 import { skyDome } from '../three/env';
-import { eccGround } from './layout';
+import { at, eccGround } from './layout';
 import type { FrameState, Zone, ZoneBuilder } from './types';
 import { ZONES } from './zones';
 
@@ -16,28 +16,36 @@ const valley = (x: number, z: number, h = 1.75) => V(x, eccGround(z) + h, z);
 
 /** Camera keyframes: [progress, position, look-at]. */
 const KEYS: [number, THREE.Vector3, THREE.Vector3][] = [
-  [0.0, V(0, 7.5, 108), V(0, 5.5, 52)],
-  [0.06, V(0, 3.2, 96), V(0, 4.2, 66)],
-  [0.11, V(1.6, 1.75, 79), V(2.4, 1.35, 66)],
-  [0.16, V(2.6, 5.6, 58), V(0, -4, 26)],
-  [0.21, valley(1.2, 40, 2.6), valley(0, 12, 1.2)],
-  [0.27, valley(-1.5, 16), valley(1.5, -12, 1.6)],
-  [0.33, valley(1.6, -14), valley(-1, -40, 1.6)],
-  [0.38, valley(0, -42), valley(0, -66, 4)],
-  [0.42, valley(0, -60, 1.9), V(0, 4, -100)],
-  [0.46, valley(0, -76, 1.8), V(0, 10, -128)],
-  [0.5, V(0, 1.8, -96), V(0, 12.5, -134)],
-  [0.54, V(11, 3.2, -104), V(0, 13, -134)],
-  [0.58, V(-10, 2.2, -103), V(-48, 7, -108)],
-  [0.62, V(-20, 2.4, -100), V(-62, 11, -110)],
-  [0.66, V(-27, 3.4, -116), V(-56, 9, -104)],
-  [0.7, V(-33, 1.75, -128), V(-34, 2.6, -165)],
-  [0.75, V(-35, 1.75, -152), V(-33, 2.4, -190)],
-  [0.8, V(-34, 2.1, -184), V(-34, 1.6, -230)],
-  [0.84, V(-34, 6, -206), V(-34, 0.5, -258)],
-  [0.89, V(-30, 30, -222), V(-34, 0, -260)],
-  [0.94, V(-33.4, 92, -248), V(-34, 0, -263)],
-  [1.0, V(-33.6, 104, -247), V(-34, 0, -263)],
+  [at(0.0), V(0, 7.5, 108), V(0, 5.5, 52)],
+  [at(0.06), V(0, 3.2, 96), V(0, 4.2, 66)],
+  [at(0.11), V(1.6, 1.75, 79), V(2.4, 1.35, 66)],
+  [at(0.16), V(2.6, 5.6, 58), V(0, -4, 26)],
+  [at(0.21), valley(1.2, 40, 2.6), valley(0, 12, 1.2)],
+  [at(0.27), valley(-1.5, 16), valley(1.5, -12, 1.6)],
+  [at(0.33), valley(1.6, -14), valley(-1, -40, 1.6)],
+  [at(0.38), valley(0, -42), valley(0, -66, 4)],
+  [at(0.42), valley(0, -60, 1.9), V(0, 4, -100)],
+  [at(0.46), valley(0, -76, 1.8), V(0, 10, -128)],
+  [at(0.5), V(0, 1.8, -96), V(0, 12.5, -134)],
+  [at(0.54), V(11, 3.2, -104), V(0, 13, -134)],
+  // the east quad: across to the 1935 Music Hall, a turn to the Gymnasium,
+  // then up over the Pfeiffer forecourt and back west toward the auditorium
+  [0.462, V(24, 2.0, -109), V(62, 6, -112)],
+  [0.49, V(40, 1.8, -109.5), V(80, 9, -113)],
+  [0.522, V(55, 1.75, -104), V(80, 10, -117)],
+  [0.552, V(66, 2.0, -103.5), V(60, 8, -136)],
+  [0.585, V(56, 12, -94), V(62, 3, -124)],
+  [0.615, V(18, 20, -95), V(-28, 6, -114)],
+  [at(0.58), V(-10, 2.2, -103), V(-48, 7, -108)],
+  [at(0.62), V(-20, 2.4, -100), V(-62, 11, -110)],
+  [at(0.66), V(-27, 3.4, -116), V(-56, 9, -104)],
+  [at(0.7), V(-33, 1.75, -128), V(-34, 2.6, -165)],
+  [at(0.75), V(-35, 1.75, -152), V(-33, 2.4, -190)],
+  [at(0.8), V(-34, 2.1, -184), V(-34, 1.6, -230)],
+  [at(0.84), V(-34, 6, -206), V(-34, 0.5, -258)],
+  [at(0.89), V(-30, 30, -222), V(-34, 0, -260)],
+  [at(0.94), V(-33.4, 92, -248), V(-34, 0, -263)],
+  [at(1.0), V(-33.6, 104, -247), V(-34, 0, -263)],
 ];
 
 interface Daylight {
@@ -46,14 +54,14 @@ interface Daylight {
   key: number; hemi: number; sky: string; groundTint: string; exposure: number; fog: string;
 }
 const DAY: Daylight[] = [
-  { p: 0.0, el: 1.5, az: 72, horizon: '#f6b9a0', mid: '#b9a9c8', zenith: '#3f5486', sun: '#ffb486', cloud: '#f2c6c0', cloudShade: '#6d6a8c', key: 1.3, hemi: 0.45, sky: '#9fa9d0', groundTint: '#4a4038', exposure: 1.0, fog: '#c7aab4' },
-  { p: 0.16, el: 16, az: 62, horizon: '#f4dcc6', mid: '#bdd3ea', zenith: '#5b85c0', sun: '#ffe0bb', cloud: '#fff3e6', cloudShade: '#9aa6b8', key: 3.0, hemi: 0.8, sky: '#c4d8f0', groundTint: '#6e6450', exposure: 1.0, fog: '#d8dde0' },
-  { p: 0.4, el: 58, az: 8, horizon: '#e2ebf1', mid: '#a9c9ea', zenith: '#3f6fb4', sun: '#fff6ea', cloud: '#ffffff', cloudShade: '#a9b4c4', key: 3.4, hemi: 0.95, sky: '#cfe0f4', groundTint: '#706650', exposure: 0.95, fog: '#dfe6ec' },
-  { p: 0.55, el: 34, az: -48, horizon: '#efe2cf', mid: '#b7cde6', zenith: '#4a76b4', sun: '#ffeccc', cloud: '#fff6ea', cloudShade: '#a8a8b8', key: 3.2, hemi: 0.85, sky: '#cdd9ea', groundTint: '#706650', exposure: 0.98, fog: '#e2e0dc' },
-  { p: 0.66, el: 11, az: -72, horizon: '#ffcf9f', mid: '#f0b9a2', zenith: '#4f74a6', sun: '#ffd09a', cloud: '#ffe6cc', cloudShade: '#a3818a', key: 3.0, hemi: 0.6, sky: '#e8c4b4', groundTint: '#6a5644', exposure: 1.0, fog: '#e2bfa6' },
-  { p: 0.76, el: 1, az: -84, horizon: '#ff9c72', mid: '#c98ba2', zenith: '#2e3d6b', sun: '#ff9462', cloud: '#f2a98e', cloudShade: '#5a4a6a', key: 1.3, hemi: 0.42, sky: '#a98cb0', groundTint: '#40342e', exposure: 1.08, fog: '#b98c8e' },
-  { p: 0.84, el: -9, az: -96, horizon: '#40507e', mid: '#273364', zenith: '#0c1431', sun: '#7a88c8', cloud: '#3a4470', cloudShade: '#141a33', key: 0.5, hemi: 0.3, sky: '#48548a', groundTint: '#1a1c24', exposure: 1.15, fog: '#2c3558' },
-  { p: 1.0, el: -24, az: -110, horizon: '#1b2546', mid: '#0f1733', zenith: '#040812', sun: '#5d6ca8', cloud: '#1c2340', cloudShade: '#080b16', key: 0.4, hemi: 0.24, sky: '#2c3766', groundTint: '#0d0f16', exposure: 1.2, fog: '#121a33' },
+  { p: at(0.0), el: 1.5, az: 72, horizon: '#f6b9a0', mid: '#b9a9c8', zenith: '#3f5486', sun: '#ffb486', cloud: '#f2c6c0', cloudShade: '#6d6a8c', key: 1.3, hemi: 0.45, sky: '#9fa9d0', groundTint: '#4a4038', exposure: 1.0, fog: '#c7aab4' },
+  { p: at(0.16), el: 16, az: 62, horizon: '#f4dcc6', mid: '#bdd3ea', zenith: '#5b85c0', sun: '#ffe0bb', cloud: '#fff3e6', cloudShade: '#9aa6b8', key: 3.0, hemi: 0.8, sky: '#c4d8f0', groundTint: '#6e6450', exposure: 1.0, fog: '#d8dde0' },
+  { p: at(0.4), el: 58, az: 8, horizon: '#e2ebf1', mid: '#a9c9ea', zenith: '#3f6fb4', sun: '#fff6ea', cloud: '#ffffff', cloudShade: '#a9b4c4', key: 3.4, hemi: 0.95, sky: '#cfe0f4', groundTint: '#706650', exposure: 0.95, fog: '#dfe6ec' },
+  { p: at(0.55, true), el: 34, az: -48, horizon: '#efe2cf', mid: '#b7cde6', zenith: '#4a76b4', sun: '#ffeccc', cloud: '#fff6ea', cloudShade: '#a8a8b8', key: 3.2, hemi: 0.85, sky: '#cdd9ea', groundTint: '#706650', exposure: 0.98, fog: '#e2e0dc' },
+  { p: at(0.66), el: 11, az: -72, horizon: '#ffcf9f', mid: '#f0b9a2', zenith: '#4f74a6', sun: '#ffd09a', cloud: '#ffe6cc', cloudShade: '#a3818a', key: 3.0, hemi: 0.6, sky: '#e8c4b4', groundTint: '#6a5644', exposure: 1.0, fog: '#e2bfa6' },
+  { p: at(0.76), el: 1, az: -84, horizon: '#ff9c72', mid: '#c98ba2', zenith: '#2e3d6b', sun: '#ff9462', cloud: '#f2a98e', cloudShade: '#5a4a6a', key: 1.3, hemi: 0.42, sky: '#a98cb0', groundTint: '#40342e', exposure: 1.08, fog: '#b98c8e' },
+  { p: at(0.84), el: -9, az: -96, horizon: '#40507e', mid: '#273364', zenith: '#0c1431', sun: '#7a88c8', cloud: '#3a4470', cloudShade: '#141a33', key: 0.5, hemi: 0.3, sky: '#48548a', groundTint: '#1a1c24', exposure: 1.15, fog: '#2c3558' },
+  { p: at(1.0), el: -24, az: -110, horizon: '#1b2546', mid: '#0f1733', zenith: '#040812', sun: '#5d6ca8', cloud: '#1c2340', cloudShade: '#080b16', key: 0.4, hemi: 0.24, sky: '#2c3766', groundTint: '#0d0f16', exposure: 1.2, fog: '#121a33' },
 ];
 const MOON = V(0.35, 0.72, 0.6).normalize();
 
@@ -162,7 +170,8 @@ function lightPool(scene: THREE.Scene, zones: Zone[], size: number) {
 
 export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<World> {
   const lite = narrow();
-  const st = new Studio(host, { fov: 50, background: '#c7aab4', exposure: 1, bloom: { strength: 0.42, radius: 0.6, threshold: 0.9 }, envIntensity: 1, shadows: true, ao: { radius: 0.8, intensity: 0.85, falloff: 1 } });
+  // phones: a 1.5x ceiling on resolution and a 2048 shadow map keep GPU memory and fill rate in reach
+  const st = new Studio(host, { fov: 50, background: '#c7aab4', exposure: 1, bloom: { strength: 0.42, radius: 0.6, threshold: 0.9 }, envIntensity: 1, shadows: true, ao: { radius: 0.8, intensity: 0.85, falloff: 1 }, dprMax: lite ? 1.5 : 2, shadowSize: lite ? 2048 : 4096 });
   const { scene, camera } = st;
   camera.near = 0.1;
   camera.far = 2400;
@@ -193,7 +202,7 @@ export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<Wo
 
   const key = new THREE.DirectionalLight('#ffffff', 3);
   key.castShadow = true;
-  key.shadow.mapSize.set(4096, 4096);
+  key.shadow.mapSize.set(lite ? 2048 : 4096, lite ? 2048 : 4096);
   Object.assign(key.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55, near: 1, far: 420 });
   key.shadow.bias = -0.0003;
   key.shadow.normalBias = 0.045;
@@ -260,7 +269,7 @@ export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<Wo
     const u = along(p);
     posCurve.getPoint(u, pos);
     lookCurve.getPoint(u, look);
-    const sway = 1 - THREE.MathUtils.smoothstep(p, 0.86, 0.94);
+    const sway = 1 - THREE.MathUtils.smoothstep(p, at(0.86), at(0.94));
     camera.position.copy(pos).add(tmp.set(st.pointer.x * 0.35 * sway, -st.pointer.y * 0.18 * sway, 0));
     camera.lookAt(look.add(tmp.set(st.pointer.x * 0.9 * sway, 0, 0)));
 
@@ -301,7 +310,7 @@ export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<Wo
     state.p = p;
     state.sunDir.copy(keyDir);
     state.night = night;
-    state.lamps = THREE.MathUtils.smoothstep(p, 0.7, 0.8);
+    state.lamps = THREE.MathUtils.smoothstep(p, at(0.7), at(0.8));
     state.sunColor.copy(key.color);
     for (const z of zones) {
       const far = camera.position.distanceTo(z.center) > z.radius + 190;

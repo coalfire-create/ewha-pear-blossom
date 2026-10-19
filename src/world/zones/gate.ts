@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { branchGeometry, scatterBlossoms } from '../../three/blossom';
 import { cardMaterial, foliageCards, grassField, paverMaps, repeatMaps, trunkGeometry, type CardSpot } from '../../three/env';
-import { ECC } from '../layout';
+import { ECC, at } from '../layout';
 import type { BuildCtx, FrameState, Zone } from '../types';
 import { WALK_N, buildTown } from './gate-city';
 
@@ -340,7 +340,7 @@ export async function buildGate(ctx: BuildCtx): Promise<Zone> {
   }
 
   // ── entrance plaza ───────────────────────────────────────────────────────
-  const pz = keep(repeatMaps(paverMaps(72, 2048, { cols: 4, rows: 8, tone: [204, 198, 186], spread: 20 }), (PLAZA.x * 2) / 6, (PLAZA.z1 - PLAZA.z0 + 3) / 6));
+  const pz = keep(repeatMaps(paverMaps(72, lite ? 1024 : 2048, { cols: 4, rows: 8, tone: [204, 198, 186], spread: 20 }), (PLAZA.x * 2) / 6, (PLAZA.z1 - PLAZA.z0 + 3) / 6));
   const plaza = add(new THREE.Mesh(new THREE.PlaneGeometry(PLAZA.x * 2, PLAZA.z1 - PLAZA.z0 + 3), new THREE.MeshStandardMaterial({ map: pz.map, normalMap: pz.normalMap, roughnessMap: pz.roughnessMap, roughness: 1 })));
   plaza.rotation.x = -Math.PI / 2;
   plaza.position.set(0, 0.012, (PLAZA.z0 + PLAZA.z1 + 3) / 2);
@@ -489,7 +489,7 @@ export async function buildGate(ctx: BuildCtx): Promise<Zone> {
     update(st: FrameState) {
       grass.tick(st.t);
       // the gate and the street keep their lamps from the night until the sun is up
-      const dawn = 1 - THREE.MathUtils.smoothstep(st.p, 0.1, 0.2);
+      const dawn = 1 - THREE.MathUtils.smoothstep(st.p, at(0.1), at(0.2));
       const on = Math.max(dawn, st.lamps);
       town.update(dawn, st.lamps);
       lanternGlass.color.copy(glassBase).multiplyScalar(0.6 + on * 2.6);

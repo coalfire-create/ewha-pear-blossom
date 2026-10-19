@@ -709,7 +709,7 @@ function buildHair(style: HairStyle, base: THREE.Color, seed: number, accent: TH
 
   if (style === 'long' || style === 'bob') {
     (style === 'bob' ? parts : fall).push(hairVolume(style, base, partX));
-    const M = 64;
+    const M = 84;
     for (let layer = 0; layer < 2; layer++)
       for (let k = 0; k < M; k++) {
         const th = -Math.PI + (2 * Math.PI * (k + 0.5 + layer * 0.5)) / M + (rnd() - 0.5) * 0.03;
@@ -719,17 +719,17 @@ function buildHair(style: HairStyle, base: THREE.Color, seed: number, accent: TH
         const yEnd = style === 'bob' ? -0.106 - 0.012 * frontness + (rnd() - 0.5) * 0.004 : (layer ? -0.27 : -0.31) + (rnd() - 0.5) * 0.02;
         const lift = 0.0085 + layer * 0.0025 + rnd() * 0.001;
         const pe = phiMax(th);
-        const pts = fallPath(th, pe - (layer ? 0.18 : 0.32) - rnd() * 0.1, lift, { yEnd, margin: 0.011 + layer * 0.004, faceSide, curl: style === 'bob' ? 0.9 : 0.25 });
-        if (pts.length > 3) (style === 'bob' ? parts : fall).push(clump(pts, 0.014 + rnd() * 0.005, 0.003, base, 0.88 + rnd() * 0.22, style === 'bob' ? 26 : 40, style === 'bob'));
+        const pts = fallPath(th, pe - (layer ? 0.18 : 0.32) - rnd() * 0.1, lift, { yEnd, margin: 0.011 + layer * 0.004, faceSide, curl: style === 'bob' ? 0.9 : 0.45 });
+        if (pts.length > 3) (style === 'bob' ? parts : fall).push(clump(pts, 0.012 + rnd() * 0.004, 0.0028, base, 0.88 + rnd() * 0.22, style === 'bob' ? 26 : 40, style === 'bob'));
       }
     // soft, airy bangs that just reach the brows
     if (seed < 0.75) {
-      for (let k = 0; k < 26; k++) {
-        const x0 = lerp(-0.046, 0.046, k / 25) + (rnd() - 0.5) * 0.002;
+      for (let k = 0; k < 34; k++) {
+        const x0 = lerp(-0.047, 0.047, k / 33) + (rnd() - 0.5) * 0.002;
         const th = Math.asin(clamp(x0 / 0.075, -1, 1));
         const edge = Math.abs(x0) / 0.046;
-        const pts = fallPath(th, 0.36 + rnd() * 0.06, 0.0085, { yEnd: 0.03 - 0.008 * edge * edge + (rnd() - 0.5) * 0.002, margin: 0.005, curl: 0.4 });
-        if (pts.length > 3) parts.push(clump(pts, 0.0095 + rnd() * 0.002, 0.0022, base, 0.92 + rnd() * 0.16, 22));
+        const pts = fallPath(th, 0.36 + rnd() * 0.06, 0.0085, { yEnd: 0.03 - 0.008 * edge * edge + (rnd() - 0.5) * 0.004, margin: 0.005, curl: 0.4 });
+        if (pts.length > 3) parts.push(clump(pts, 0.0078 + rnd() * 0.0018, 0.0019, base, 0.92 + rnd() * 0.16, 22));
       }
     }
   }

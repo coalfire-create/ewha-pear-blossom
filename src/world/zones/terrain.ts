@@ -119,7 +119,7 @@ export function buildTerrain(ctx: BuildCtx): Zone {
   slab(AUD_PLAZA.x0, AUD_PLAZA.x1, AUD_PLAZA.z0, AUD_PLAZA.z1);
   slab(AVENUE.x - AVENUE.width / 2, AVENUE.x + AVENUE.width / 2, LAWN.center.z + RING.r0 + 1, AUD_PLAZA.z0);
   // minor paths to the buildings around
-  slab(FORECOURT.x1, 46, -112, -106, true);
+  slab(FORECOURT.x1, 46, -114.4, -109.6, true);
   slab(-4, 4, -200, FORECOURT.z0 - 14);
   slab(LAWN.center.x + RING.r1 - 1, 24, LAWN.center.z - 2.5, LAWN.center.z + 2.5, true);
   slab(-96, LAWN.center.x - RING.r1 + 1, LAWN.center.z - 2.5, LAWN.center.z + 2.5, true);
@@ -179,7 +179,7 @@ export function buildTerrain(ctx: BuildCtx): Zone {
     DRESSED.some((b) => inBox(x, z, b, pad)) || inBox(x, z, { x0: -30, x1: 30, z0: -150, z1: -84 }, pad) ||
     inBox(x, z, { x0: -92, x1: -24, z0: -132, z1: -84 }, pad) || inBox(x, z, { x0: -48, x1: -20, z0: -222, z1: -84 }, pad) ||
     lawnR(x, z) < 84 + pad || inBox(x, z, { x0: -10, x1: 10, z0: -205, z1: -126 }, pad) ||
-    inBox(x, z, { x0: 30, x1: 70, z0: -130, z1: -94 }, pad) || inBox(x, z, { x0: 30, x1: 70, z0: -185, z1: -145 }, pad) ||
+    inBox(x, z, { x0: 30, x1: 104, z0: -156, z1: -88 }, pad) || inBox(x, z, { x0: 30, x1: 70, z0: -195, z1: -156 }, pad) ||
     inBox(x, z, { x0: -132, x1: -92, z0: -130, z1: -94 }, pad) || inBox(x, z, { x0: -24, x1: 36, z0: -205, z1: -178 }, pad) ||
     inBox(x, z, { x0: -96, x1: -60, z0: -184, z1: -152 }, pad);
   const f = forest();
@@ -317,8 +317,7 @@ export function buildTerrain(ctx: BuildCtx): Zone {
   // ── secondary campus buildings between the landmarks ─────────────────────
   const cm = campusMats(ctx);
   group.add(campusBlock(cm, [
-    [52, -112, -Math.PI / 2, 30, 14, 4, true, true],
-    [50, -165, -Math.PI / 2, 34, 14, 3, false, true],
+    [50, -176, -Math.PI / 2, 34, 14, 3, false, true],
     [-112, -112, Math.PI / 2, 30, 14, 4, false, true],
     [6, -192, 0, 40, 14, 3, true, true],
     [-78, -168, Math.PI / 2, 26, 12, 3, false, true],

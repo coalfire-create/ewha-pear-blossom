@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { buildWorld, type World } from './world/world';
-import { clockAt, CHAPTERS, type ChapterId } from './world/layout';
+import { at, clockAt, CHAPTERS, type ChapterId } from './world/layout';
 import { lenis } from './scroll';
 
 // 이화의 하루 — the whole page is one walk through campus. A fixed 3D world
@@ -15,6 +15,7 @@ const STOPS: { id: ChapterId; ko: string; en: string }[] = [
   { id: 'gate', ko: '정문', en: 'Main Gate' },
   { id: 'ecc', ko: 'ECC', en: 'Campus Valley' },
   { id: 'pfeiffer', ko: '파이퍼홀', en: 'Pfeiffer Hall' },
+  { id: 'quad', ko: '음악관', en: 'The 1935 Quad' },
   { id: 'auditorium', ko: '대강당', en: 'Welch-Ryang Auditorium' },
   { id: 'avenue', ko: '배꽃길', en: 'Pear Avenue' },
   { id: 'night', ko: '잔디광장', en: 'The Lawn at Night' },
@@ -46,7 +47,7 @@ function Count({ to, on, suffix = '' }: { to: number; on: boolean; suffix?: stri
 
 const beats = (active: string): Beat[] => [
   {
-    id: 'hero', at: [-1, 0.045], side: 'bottom', wide: true, body: (
+    id: 'hero', at: [-1, at(0.045)], side: 'bottom', wide: true, body: (
       <div className="hero">
         <p className="kicker">EWHA WOMANS UNIVERSITY · 1886 — 2026</p>
         <h1>가장 먼저 핀 꽃이<br />가장 멀리 갑니다</h1>
@@ -56,27 +57,27 @@ const beats = (active: string): Beat[] => [
     ),
   },
   {
-    id: 'gate', at: [0.07, 0.155], side: 'left', body: (
+    id: 'gate', at: [at(0.07), at(0.155)], side: 'left', body: (
       <>
         <p className="beat__k">정문 · 1886</p>
         <h2>단 한 명의<br />학생으로부터</h2>
         <p>1886년, 메리 F. 스크랜턴은 서울 정동의 한옥에서 단 한 명의 학생과 수업을 시작했습니다. 이듬해 고종은 ‘배꽃이 핀 배움터’라는 뜻의 이름, <b>梨花學堂</b>을 내렸습니다.</p>
-        <ul className="chips"><li><b>1886</b>개교</li><li><b>1887</b>교명 이화학당</li><li><b>1</b>첫 번째 학생</li></ul>
+        <ul className="facts"><li><b>1886</b>개교</li><li><b>1887</b>교명 이화학당</li><li><b>1</b>첫 번째 학생</li></ul>
       </>
     ),
   },
   {
-    id: 'ecc', at: [0.175, 0.275], side: 'right', body: (
+    id: 'ecc', at: [at(0.175), at(0.275)], side: 'right', body: (
       <>
         <p className="beat__k">ECC · 2008</p>
         <h2>땅을 갈라 만든<br />캠퍼스</h2>
         <p>개교 120주년을 맞아 프랑스 건축가 <b>도미니크 페로</b>가 설계한 이화캠퍼스복합단지(ECC). 건물을 땅 위에 올리는 대신 땅을 갈라 계곡 같은 길을 냈고, 양쪽 유리벽 뒤로 강의실과 열람실이 이어집니다. 지붕은 다시 잔디와 나무가 덮었습니다.</p>
-        <ul className="chips"><li><b>2008</b>완공</li><li><b>120</b>주년 기념</li><li><b>국내 최대</b>지하 캠퍼스</li></ul>
+        <ul className="facts"><li><b>2008</b>완공</li><li><b>120</b>주년 기념</li><li><b>국내 최대</b>지하 캠퍼스</li></ul>
       </>
     ),
   },
   {
-    id: 'ai', at: [0.29, 0.395], side: 'left', body: (
+    id: 'ai', at: [at(0.29), at(0.395)], side: 'left', body: (
       <>
         <p className="beat__k">강의실 · Human-Centered AI</p>
         <h2>140주년의 선언,<br />인간 중심 AI 대전환</h2>
@@ -88,7 +89,7 @@ const beats = (active: string): Beat[] => [
     ),
   },
   {
-    id: 'pfeiffer', at: [0.425, 0.545], side: 'right', body: (
+    id: 'pfeiffer', at: [at(0.425), at(0.545)], side: 'right', body: (
       <>
         <p className="beat__k">파이퍼홀 · 1935</p>
         <h2>신촌의 첫 건물,<br />파이퍼홀</h2>
@@ -103,7 +104,41 @@ const beats = (active: string): Beat[] => [
     ),
   },
   {
-    id: 'auditorium', at: [0.56, 0.615], side: 'left', body: (
+    id: 'quad', at: [0.46, 0.515], side: 'left', body: (
+      <>
+        <p className="beat__k">1935 · 신촌의 첫 봄</p>
+        <h2>화강암으로 지은<br />세 채의 처음</h2>
+        <p>정동에서 신촌으로 옮겨 온 1935년, 파이퍼홀과 함께 <b>음악관</b>과 <b>체육관</b>이 세워졌습니다. 같은 화강암, 같은 고딕의 결로 지은 세 건물은 2002년 나란히 국가등록문화유산이 되었고, 지금도 매일 수업이 열립니다.</p>
+        <ul className="facts"><li><b>1935</b>신촌 캠퍼스 시대</li><li><b>3</b>동 국가등록문화유산</li><li><b>91</b>년째 현역</li></ul>
+      </>
+    ),
+  },
+  {
+    id: 'firsts', at: [0.525, 0.578], side: 'right', wide: true, body: (
+      <>
+        <p className="beat__k">처음을 연 이화인</p>
+        <h2>‘한국 최초’ 앞에는<br />늘 이화가 있었습니다</h2>
+        <ol className="timeline">
+          <li><b>1887</b><span><em>보구여관</em>한국 최초의 여성 전문 병원. 오늘의 이화의료원이 여기서 시작됩니다.</span></li>
+          <li><b>1900</b><span><em>박에스더</em>이화학당에서 공부한, 한국 최초의 여성 서양 의사.</span></li>
+          <li><b>1919</b><span><em>유관순</em>이화학당 학생으로 3·1운동의 맨 앞에 섰습니다.</span></li>
+          <li><b>1952</b><span><em>이태영</em>이화여전 출신, 한국 최초의 여성 변호사.</span></li>
+        </ol>
+      </>
+    ),
+  },
+  {
+    id: 'pride', at: [0.588, 0.628], side: 'left', body: (
+      <>
+        <p className="beat__k">오늘의 이화</p>
+        <h2>세계에서 가장 큰<br />여자대학</h2>
+        <p>한 명의 학생으로 시작한 학당은 오늘 세계 최대 규모의 여자대학이 되었습니다. 국보 <b>백자 철화 포도문 항아리</b>를 품은 대학박물관, 보구여관의 뜻을 잇는 이화의료원까지 — 이화의 처음은 지금도 이어지고 있습니다.</p>
+        <ul className="facts"><li><b>140</b>년의 역사</li><li><b>No.1</b>세계 최대 여자대학</li><li><b>국보</b>대학박물관 소장</li></ul>
+      </>
+    ),
+  },
+  {
+    id: 'auditorium', at: [at(0.56), at(0.615)], side: 'left', body: (
       <>
         <p className="beat__k">대강당 · 1956</p>
         <h2>동양에서 가장 컸던<br />무대</h2>
@@ -112,7 +147,7 @@ const beats = (active: string): Beat[] => [
     ),
   },
   {
-    id: 'founders', at: [0.62, 0.68], side: 'right', wide: true, body: (
+    id: 'founders', at: [at(0.62), at(0.68)], side: 'right', wide: true, body: (
       <>
         <p className="beat__k">Women Founders</p>
         <h2>아이디어를 넘어,<br />세계 무대의 창업으로</h2>
@@ -126,16 +161,16 @@ const beats = (active: string): Beat[] => [
     ),
   },
   {
-    id: 'but', at: [0.7, 0.755], side: 'left', body: (
+    id: 'but', at: [at(0.7), at(0.755)], side: 'left', body: (
       <>
         <p className="beat__k">배꽃길 · 벗</p>
-        <h2>우리는 서로를<br /><em>‘벗’</em>이라 부릅니다</h2>
-        <p>복도에서, 잔디밭에서 — 처음 보는 사이여도 이화에서는 서로를 벗이라 부릅니다. 2007년 학내 커뮤니티 이화이언에서 정해진 호칭이 이화의 말이 되었습니다.</p>
+        <h2>“진희 벗님!”<br />이름 뒤에 붙는 <em>벗</em></h2>
+        <p>복도에서, 잔디밭에서 — 처음 만난 사이여도 이화에서는 이름 뒤에 ‘벗님’을 붙여 부릅니다. 2007년 학내 커뮤니티 이화이언에서 정해진 호칭이 이화의 말이 되었습니다.</p>
       </>
     ),
   },
   {
-    id: 'but2', at: [0.76, 0.815], side: 'right', body: (
+    id: 'but2', at: [at(0.76), at(0.815)], side: 'right', body: (
       <>
         <p className="beat__k">수평의 이름</p>
         <h2>나이도 학번도<br />묻지 않는</h2>
@@ -144,23 +179,24 @@ const beats = (active: string): Beat[] => [
     ),
   },
   {
-    id: 'night', at: [0.845, 0.925], side: 'center', wide: true, body: (
+    id: 'night', at: [at(0.885), at(0.945)], side: 'center', wide: true, body: (
       <>
         <p className="beat__k">잔디광장 · 진 · 선 · 미</p>
         <h2>한 명에서 시작한 불빛이<br />배꽃이 되었습니다</h2>
         <div className="motto">
-          <div><b>眞</b><span>끝까지 묻고 스스로 답을 찾는 지성</span></div>
-          <div><b>善</b><span>배운 것을 세상을 위해 쓰는 마음</span></div>
-          <div><b>美</b><span>저마다의 결로 피어나는 아름다움</span></div>
+          <div><b>眞</b><i>진 · Truth</i><span>끝까지 묻고<br />스스로 답을 찾는 지성</span></div>
+          <div><b>善</b><i>선 · Goodness</i><span>배운 것을<br />세상을 위해 쓰는 마음</span></div>
+          <div><b>美</b><i>미 · Beauty</i><span>저마다의 결로<br />피어나는 아름다움</span></div>
         </div>
+        <p className="motto__foot">1886년 한 명의 학생이 든 등불에서, 오늘 수만 명의 이화인까지 — 이화의 교훈 진·선·미.</p>
       </>
     ),
   },
   {
-    id: 'finale', at: [0.95, 2], side: 'center', wide: true, body: (
+    id: 'finale', at: [at(0.95), 2], side: 'center', wide: true, body: (
       <div className="finale">
         <p className="beat__k">140th Spring · Invitation</p>
-        <h2>다음 봄에 피어날 꽃은,<br />바로 당신입니다, 벗.</h2>
+        <h2>다음 봄에 피어날 꽃은,<br />바로 당신입니다, 벗님.</h2>
         <div className="finale__cta">
           <a className="btn" href="https://admission.ewha.ac.kr" target="_blank" rel="noopener">입학처 바로가기 →</a>
           <a className="btn btn--ghost" href="https://www.ewha.ac.kr" target="_blank" rel="noopener">ewha.ac.kr</a>
@@ -244,12 +280,12 @@ export default function App() {
       if (clock.current) put(clock.current, 'text', fmt(clockAt(p)));
       // the sun (then moon) crosses the little arc in the clock as the day passes
       if (sunDot.current) {
-        const a = Math.PI * (1 - Math.min(1, p / 0.8));
+        const a = Math.PI * (1 - Math.min(1, p / at(0.8)));
         put(sunDot.current, 'transform', `translate(${(Math.cos(a) * 26).toFixed(2)}px, ${(-Math.sin(a) * 26).toFixed(2)}px)`);
-        sunDot.current.classList.toggle('moon', p > 0.8);
+        sunDot.current.classList.toggle('moon', p > at(0.8));
       }
       if (rail.current) put(rail.current, '--p', p.toFixed(4));
-      put(document.documentElement, '--night', Math.min(1, Math.max(0, (p - 0.74) / 0.12)).toFixed(3));
+      put(document.documentElement, '--night', Math.min(1, Math.max(0, (p - at(0.74)) / (at(0.86) - at(0.74)))).toFixed(3));
     };
     loop();
     return () => { alive = false; cancelAnimationFrame(raf); w?.dispose(); delete document.documentElement.dataset.ready; };

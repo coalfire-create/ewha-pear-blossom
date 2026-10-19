@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { figure, lantern, rig, reachTo, stride, POSE, LANTERN, LANTERN_GRIP, SEAT_H, type CrowdPose, type Era, type Rig, type RigLook } from '../../three/student';
 import { glowTexture } from '../../three/studio';
-import { ECC, LAWN, AVENUE, eccGround, groundAt, local } from '../layout';
+import { ECC, LAWN, AVENUE, QUAD, at, eccGround, groundAt, local, walkGround } from '../layout';
 import type { BuildCtx, FrameState, Zone } from '../types';
 import { bubble, phone, bench, microphone } from './people-props';
 
@@ -12,8 +12,11 @@ import { bubble, phone, bench, microphone } from './people-props';
 //   auditorium a founder presenting on the 대강당 landing to a crowd holding up phones
 //   avenue    the 벗 scene: a call, a wave back, friends gathering, walking on together
 //   night     thousands of lanterns, 1886 → today, forming the five petals of 梨花
+//   quad      music students heading to the Music Hall, friends on the lawn
 // Close-up people are full rigs; crowds are instanced figures. Each beat is its
-// own group, shown only while its chapter is near and only updated then.
+// own group, shown only while its chapter is near and only updated then. Nobody
+// pops: beats, close-up rigs and every crowd member dissolve in and out with a
+// dithered (alpha-hashed) fade, which needs no sorting and costs almost nothing.
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const ss = THREE.MathUtils.smoothstep;
@@ -26,7 +29,39 @@ const SKINS = ['#f1d0bb', '#ecc6ad', '#f4d8c6', '#e2b89c', '#f0cdb4'];
 const HAIRS = ['#17110f', '#1f1611', '#2b1d16', '#120d0b', '#3a2a20'];
 const CHIMA = ['#26305e', '#7a2135', '#1f2a44', '#2f5d50', '#5a2b4a'];
 
-interface Beat { group: THREE.Group; range: [number, number]; update(s: FrameState): void }
+interface Beat { group: THREE.Group; range: [number, number]; update(s: FrameState): void; k: number; mats: THREE.Material[]; crowds: Crowd[] }
+type Crowd = ReturnType<typeof crowd>;
+
+/** Crowd materials read a per-instance fade (`aFade`) into alpha; alpha hashing turns it into a dissolve. */
+function fadeable<M extends THREE.Material>(m: M) {
+  m.alphaHash = true;
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
+    sh.fragmentShader = 'varying float vFade;\n' + sh.fragmentShader.replace('#include <alphahash_fragment>', 'diffuseColor.a *= vFade;\n#include <alphahash_fragment>');
+  };
+  m.customProgramCacheKey = () => 'crowd-fade';
+  return m;
+}
+
+/** A close-up figure that fades on its own (distance, path ends) on top of its beat's fade. */
+function rigFader(root: THREE.Object3D) {
+  root.userData.ownFade = true;
+  const mats = new Set<THREE.Material>();
+  root.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    for (const x of Array.isArray(m) ? m : m ? [m] : []) if (!x.transparent) { x.alphaHash = true; mats.add(x); }
+  });
+  let last = -1;
+  return (k: number) => {
+    root.visible = k > 0.002;
+    if (Math.abs(k - last) < 1e-3) return;
+    last = k;
+    for (const m of mats) m.opacity = k;
+  };
+}
+
+/** 1 in the middle of a looping path, 0 at its ends, so walkers dissolve instead of teleporting. */
+const pathFade = (u: number, a: number, b: number, edge = 2.5) => ss(u, Math.min(a, b), Math.min(a, b) + edge) * (1 - ss(u, Math.max(a, b) - edge, Math.max(a, b)));
 
 /** Per-instance tinted crowd of one figure variant: top/bottom white parts take instance colours. */
 function crowd(era: Era, pose: CrowdPose, hair: 'bob' | 'long' | 'ponytail', n: number, cloth: THREE.Material, fixedMat: THREE.Material, shadows = true) {
@@ -38,9 +73,22 @@ function crowd(era: Era, pose: CrowdPose, hair: 'bob' | 'long' | 'ponytail', n: 
     im.frustumCulled = false;
     return im;
   });
+  const n1 = Math.max(1, n);
+  const fade = new THREE.InstancedBufferAttribute(new Float32Array(n1).fill(1), 1);
+  fade.setUsage(THREE.DynamicDrawUsage);
+  for (const im of meshes) im.geometry.setAttribute('aFade', fade);
+  /** per-instance fade set by the beat's update; multiplied by the beat's own fade in apply() */
+  const edge = new Float32Array(n1).fill(1);
   const col = new THREE.Color();
-  return {
+  const self = {
     meshes,
+    edge,
+    apply(k: number) {
+      const a = fade.array as Float32Array;
+      for (let i = 0; i < n1; i++) a[i] = edge[i] * k;
+      fade.needsUpdate = true;
+      for (const im of meshes) im.castShadow = shadows && k > 0.99;
+    },
     paint(i: number, top: THREE.ColorRepresentation, bottom: THREE.ColorRepresentation) {
       meshes[0].setColorAt(i, col.set(top));
       meshes[1].setColorAt(i, col.set(bottom));
@@ -58,6 +106,8 @@ function crowd(era: Era, pose: CrowdPose, hair: 'bob' | 'long' | 'ponytail', n: 
       }
     },
   };
+  for (const im of meshes) im.userData.crowd = self;
+  return self;
 }
 
 /** Feet stay planted: advance a walk cycle by how far the figure actually moved along its heading. */
@@ -109,23 +159,23 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
   const beats: Beat[] = [];
   const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)];
   const look = (o: Partial<RigLook> = {}): RigLook => ({ era: 'modern', top: pick(TOPS), bottom: pick(BOTTOMS), skin: pick(SKINS), hair: pick(HAIRS), ...o });
-  const cloth = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78 });
-  const fixedMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 });
+  const cloth = fadeable(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78 }));
+  const fixedMat = fadeable(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }));
   const glowTex = keep(glowTexture());
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3(), up = V(0, 1, 0);
   const place = (x: number, y: number, z: number, yaw: number, s = 1) => m4.compose(v.set(x, y, z), q.setFromAxisAngle(up, yaw), sc.setScalar(s));
   const beat = (range: [number, number], update: (g: THREE.Group, s: FrameState) => void) => {
     const g = new THREE.Group();
     group.add(g);
-    beats.push({ group: g, range, update: (s) => update(g, s) });
+    beats.push({ group: g, range, update: (s) => update(g, s), k: -1, mats: [], crowds: [] });
     return g;
   };
 
   // ── gate · the first student, 1886 ──────────────────────────────────────
   {
     const first = rig({ era: 'hanbok', top: '#efe8da', bottom: '#22305e', accent: '#8a1f3b', skin: '#f1d0bb' });
-    const at = V(2.4, groundAt(2.4, 66), 66);
-    first.root.position.copy(at);
+    const stand = V(2.4, groundAt(2.4, 66), 66);
+    first.root.position.copy(stand);
     first.root.rotation.y = 0.14;
     POSE.holdFront(first.armL, -1);
     POSE.holdFront(first.armR, 1);
@@ -141,10 +191,9 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
     halo.scale.setScalar(0.9);
     first.root.add(halo);
     const seen = new THREE.Vector3();
-    beat([0, 0.24], (g, s) => {
-      if (!g.children.length) g.add(first.root);
+    beat([0, at(0.24)], (_g, s) => {
       const t = s.t;
-      first.root.position.y = at.y + Math.sin(t * 1.3) * 0.003;
+      first.root.position.y = stand.y + Math.sin(t * 1.3) * 0.003;
       // she turns her head toward whoever is approaching, within a natural range
       seen.copy(s.camera.position);
       first.root.worldToLocal(seen);
@@ -154,14 +203,15 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
       const flick = 1 + Math.sin(t * 7.3) * 0.05 + Math.sin(t * 12.1) * 0.03;
       silk.color.set('#ffd9a0').multiplyScalar((1.5 + s.night) * flick);
       light.intensity = 2.4 * flick;
-    });
+    }).add(first.root);
     await nextFrame();
   }
 
   // ── ECC · a morning of arrivals ──────────────────────────────────────────
   {
-    const g = beat([0.13, 0.5], () => {});
-    const { START, RAMP_END, STAIR_END, DEPTH } = ECC;
+    const g = beat([at(0.13), at(0.5)], () => {});
+    const eccBeat = beats.length - 1;
+    const { START, RAMP_END, STAIR_END, DEPTH, W } = ECC;
     // instanced walkers in three hairstyles, plus pairs chatting and stair climbers
     const per = lite ? 10 : 22;
     const variants = (['bob', 'long', 'ponytail'] as const).map((h) => crowd('modern', 'stand', h, per, cloth, fixedMat));
@@ -172,7 +222,7 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
       const c = k % 3, i = Math.floor(k / 3);
       const side = rnd() < 0.5 ? -1 : 1;
       const kind = rnd();
-      const w: W8 = { c, i, x: side * (1.9 + rnd() * 4.6), z: START - 2 - rnd() * (START - RAMP_END - 4), dir: rnd() < 0.55 ? -1 : 1, speed: 0.9 + rnd() * 0.5, ph: rnd() * 6, z0: RAMP_END + 1, z1: START - 1 };
+      const w: W8 = { c, i, x: side * (1.9 + rnd() * 3.2), z: START - 2 - rnd() * (START - RAMP_END - 4), dir: rnd() < 0.55 ? -1 : 1, speed: 0.9 + rnd() * 0.5, ph: rnd() * 6, z0: RAMP_END + 1, z1: START - 1 };
       if (kind < 0.18) {
         // chatting in pairs: stand still, facing a partner
         w.speed = 0;
@@ -220,11 +270,11 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
 
     // close-up students walking past the camera, and two on the terraces
     const heroN = lite ? 4 : 8;
-    const heroes: { r: Rig; w: ReturnType<typeof walker>; x: number; z: number; dir: number; speed: number }[] = [];
+    const heroes: { r: Rig; w: ReturnType<typeof walker>; x: number; z: number; dir: number; speed: number; fade: (k: number) => void }[] = [];
     for (let k = 0; k < heroN; k++) {
       const r = rig(look({ bag: rnd() < 0.5 }));
       const side = k % 2 ? 1 : -1;
-      const h = { r, w: walker(r), x: side * (2.2 + rnd() * 3.4), z: START - 4 - (k / heroN) * (START - RAMP_END - 8), dir: rnd() < 0.5 ? -1 : 1, speed: 1.0 + rnd() * 0.35 };
+      const h = { r, w: walker(r), x: side * (2.2 + rnd() * 2.6), z: START - 4 - (k / heroN) * (START - RAMP_END - 8), dir: rnd() < 0.5 ? -1 : 1, speed: 1.0 + rnd() * 0.35, fade: rigFader(r.root) };
       r.root.position.set(h.x, eccGround(h.z), h.z);
       h.w.sync();
       g.add(r.root);
@@ -256,19 +306,22 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
           if (w.z < w.z0) w.z = w.z1;
           if (w.z > w.z1) w.z = w.z0;
         }
-        const x = w.speed ? dodge(w.x, w.z, cam) : w.x;
+        const lim = w.z < RAMP_END ? ECC.CW - 0.45 : W - 2.3;
+        const x = THREE.MathUtils.clamp(w.speed ? dodge(w.x, w.z, cam) : w.x, -lim, lim);
         const bobY = w.speed ? Math.abs(Math.sin(s.t * 6.5 + w.ph)) * 0.02 : 0;
         const yaw = w.yaw ?? (w.dir > 0 ? 0 : Math.PI) + Math.sin(s.t * 6.5 + w.ph) * 0.03;
-        variants[w.c].set(w.i, place(x, groundAt(x, w.z) + bobY, w.z, yaw));
+        variants[w.c].set(w.i, place(x, walkGround(x, w.z) + bobY, w.z, yaw));
+        variants[w.c].edge[w.i] = w.speed ? pathFade(w.z, w.z0, w.z1, 1.6) : 1;
       }
       variants.forEach((c) => c.dirty());
       for (const h of heroes) {
         h.z += h.dir * h.speed * s.dt;
         if (h.z < RAMP_END + 2) h.z = START - 2;
         if (h.z > START - 2) h.z = RAMP_END + 2;
-        const x = dodge(h.x, h.z, cam, 2.2);
-        const far = cam.distanceTo(h.r.root.position) > 70;
-        h.r.root.visible = !far;
+        const x = THREE.MathUtils.clamp(dodge(h.x, h.z, cam, 2.2), -(W - 2.3), W - 2.3);
+        const dist = cam.distanceTo(h.r.root.position);
+        h.fade(beats[eccBeat].k * (1 - ss(dist, 55, 70)) * pathFade(h.z, RAMP_END + 2, START - 2));
+        const far = dist > 70;
         h.r.root.rotation.y = h.dir > 0 ? 0 : Math.PI;
         h.r.root.position.set(x, 0, h.z);
         if (far) { h.w.sync(); continue; }
@@ -285,7 +338,8 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
 
   // ── Pfeiffer forecourt · noon ────────────────────────────────────────────
   {
-    const g = beat([0.4, 0.6], () => {});
+    const g = beat([at(0.4), at(0.6)], () => {});
+    const pfBeat = beats.length - 1;
     // three friends posing in front of the hall, a fourth taking the photo
     const posers = [-5.1, -4.3, -3.5].map((x, k) => {
       const r = rig(look({ era: 'modern' }));
@@ -331,7 +385,7 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
     const crossers = Array.from({ length: lite ? 2 : 4 }, (_, k) => {
       const r = rig(look({ bag: k % 2 === 0 }));
       g.add(r.root);
-      return { r, w: walker(r), x: -16 + k * 9, z: -104 - k * 4.5, dir: k % 2 ? -1 : 1, speed: 1.1 + k * 0.08 };
+      return { r, w: walker(r), x: -16 + k * 9, z: -104 - k * 4.5, dir: k % 2 ? -1 : 1, speed: 1.1 + k * 0.08, fade: rigFader(r.root) };
     });
     await nextFrame();
     const loiterN = lite ? 6 : 14;
@@ -368,6 +422,7 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
         if (c.x < -20) c.x = 20;
         c.r.root.rotation.y = c.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
         c.r.root.position.set(c.x, 0, c.z);
+        c.fade(beats[pfBeat].k * pathFade(c.x, -20, 20, 3));
         c.w.step(s.dt);
         c.w.bob(0);
       }
@@ -376,7 +431,7 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
 
   // ── 대강당 · a founder on the landing, the crowd below ─────────────────────
   {
-    const g = beat([0.53, 0.71], () => {});
+    const g = beat([at(0.53), at(0.71)], () => {});
     const STAGE = V(-43, 0, -107.6);
     const founder = rig({ era: 'modern', top: '#00462a', bottom: '#e9e1d3', topStyle: 'shirt', bottomStyle: 'slacks', outer: '#f4f5ee', hairStyle: 'long', skin: '#f1d0bb' });
     founder.root.position.copy(STAGE);
@@ -470,7 +525,8 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
 
   // ── avenue · “벗!” ──────────────────────────────────────────────────────
   {
-    const g = beat([0.66, 0.84], () => {});
+    // stays until the camera has risen over the lawn, so it fades out far below rather than right in front
+    const g = beat([at(0.66), at(0.9)], () => {});
     const caller = rig(look({ top: '#f3dade', bottom: '#2b2f3a', hairStyle: 'long', bag: true }));
     const friend = rig(look({ top: '#00462a', bottom: '#e9e1d3', hairStyle: 'bob' }));
     const crew = [
@@ -482,7 +538,7 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
     const all = [caller, friend, ...crew.map((c) => c.r)];
     all.forEach((r) => g.add(r.root));
     const walks = all.map((r) => walker(r));
-    const b1 = await bubble('벗!', 'pear'), b2 = await bubble('벗~ 안녕!', 'green'), b3 = await bubble('벗들, 같이 가요!', 'pear'), b4 = await bubble('좋아, 벗!', 'green');
+    const b1 = await bubble('진희 벗님~!', 'pear'), b2 = await bubble('어, 수아 벗님! 안녕~', 'green'), b3 = await bubble('벗님들, 같이 가요!', 'pear'), b4 = await bubble('좋아요, 벗님들!', 'green');
     for (const b of [b1, b2, b3, b4]) { keep(b.material.map!); g.add(b); }
     // strollers further up the avenue
     const strollN = lite ? 6 : 12;
@@ -540,6 +596,7 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
         if (w.z > AVENUE.z0 - 20) w.z = AVENUE.z1;
         const bobY = Math.abs(Math.sin(t * 6.5 + w.ph)) * 0.02;
         strollers.set(i, place(w.x, bobY, w.z, w.dir > 0 ? Math.PI : 0));
+        strollers.edge[i] = pathFade(w.z, AVENUE.z1, AVENUE.z0 - 20, 4);
       });
       strollers.dirty();
     };
@@ -547,7 +604,7 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
 
   // ── night lawn · 1886 → 2026 in lanterns ─────────────────────────────────
   {
-    const g = beat([0.8, 1.01], () => {});
+    const g = beat([at(0.8), 1.01], () => {});
     const C = LAWN.center;
     const max = lite ? 2600 : 6200;
     const counts = [1, 7, 60, 320, 1500, max];
@@ -644,6 +701,114 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
     };
   }
 
+  // ── east quad · music students on their way to the Music Hall ────────────
+  {
+    const g = beat([at(0.55) - 0.016, at(0.55, true) + 0.01], () => {});
+    const qBeat = beats.length - 1;
+    const C = QUAD.center;
+    const caseMat = new THREE.MeshStandardMaterial({ color: '#4a3326', roughness: 0.5 });
+    const strapMat = new THREE.MeshStandardMaterial({ color: '#3b3236', roughness: 0.7 });
+    const players = Array.from({ length: lite ? 2 : 4 }, (_, k) => {
+      const r = rig(look({ bag: false, hairStyle: (['long', 'ponytail', 'bob', 'long'] as const)[k] }));
+      // an instrument case on the back: a cello for one, violins for the others
+      const cello = k === 2;
+      const cs = new THREE.Mesh(cello ? new THREE.CapsuleGeometry(0.15, 0.78, 6, 14) : new THREE.CapsuleGeometry(0.07, 0.56, 4, 10), caseMat);
+      cs.scale.set(1, 1, cello ? 0.5 : 0.7);
+      cs.position.set(cello ? 0 : 0.04, cello ? 1.0 : 1.08, cello ? -0.27 : -0.17);
+      cs.rotation.z = cello ? 0.06 : 0.55;
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.42, 0.012), strapMat);
+      strap.position.set(0.06, 1.15, 0.11);
+      strap.rotation.z = -0.55;
+      for (const m of [cs, strap]) { m.castShadow = true; r.root.add(m); }
+      g.add(r.root);
+      return { r, w: walker(r), x: 30 + k * 11, z: C.z + (k % 2 ? 1.1 : -1.1), speed: 1.0 + k * 0.07, fade: rigFader(r.root) };
+    });
+    await nextFrame();
+    // friends standing about on the lawn in small circles
+    const circles = lite ? 2 : 4, per = 3;
+    const lawnN = circles * per;
+    const lawnCrowd = crowd('modern', 'stand', 'long', lawnN, cloth, fixedMat);
+    const lawnCrowd2 = crowd('modern', 'stand', 'bob', lawnN, cloth, fixedMat);
+    g.add(...lawnCrowd.meshes, ...lawnCrowd2.meshes);
+    const spots: [number, number][] = [[52, -102], [70, -104], [54, -122], [69, -121]];
+    for (let c = 0; c < circles; c++)
+      for (let j = 0; j < per; j++) {
+        const [cx, cz] = spots[c], a = (j / per) * Math.PI * 2 + c;
+        const x = cx + Math.cos(a) * 0.8, z = cz + Math.sin(a) * 0.8;
+        const target = (c * per + j) % 2 ? lawnCrowd2 : lawnCrowd;
+        const i = Math.floor((c * per + j) / 2);
+        target.set(i, place(x, 0, z, Math.atan2(cx - x, cz - z)));
+        target.paint(i, pick(TOPS), pick(BOTTOMS));
+      }
+    lawnCrowd.count(Math.ceil(lawnN / 2));
+    lawnCrowd2.count(Math.floor(lawnN / 2));
+    lawnCrowd.dirty();
+    lawnCrowd2.dirty();
+    // a few heading across to the Gymnasium and back
+    const crossN = lite ? 3 : 6;
+    const crossers = crowd('modern', 'stand', 'ponytail', crossN, cloth, fixedMat);
+    g.add(...crossers.meshes);
+    const cw = Array.from({ length: crossN }, (_, i) => {
+      crossers.paint(i, pick(TOPS), pick(BOTTOMS));
+      return { x: C.x + (i % 2 ? 0.7 : -0.7), z: QUAD.gymZ + 2 + rnd() * (QUAD.z1 - QUAD.gymZ - 4), dir: i % 2 ? 1 : -1, speed: 0.8 + rnd() * 0.4, ph: rnd() * 6 };
+    });
+    crossers.dirty();
+    beats[qBeat].update = (s) => {
+      const t = s.t;
+      for (const p of players) {
+        p.x += p.speed * s.dt;
+        if (p.x > QUAD.musicX - 1) p.x = 28;
+        p.r.root.rotation.y = Math.PI / 2;
+        p.r.root.position.set(p.x, 0, p.z);
+        p.fade(beats[qBeat].k * pathFade(p.x, 28, QUAD.musicX - 1, 3));
+        p.w.step(s.dt);
+        p.w.bob(0);
+        p.r.head.rotation.y = Math.sin(t * 0.4 + p.z) * 0.2;
+      }
+      cw.forEach((w, i) => {
+        w.z += w.dir * w.speed * s.dt;
+        const z0 = QUAD.gymZ + 1.5, z1 = QUAD.z1;
+        if (w.z < z0) w.z = z1;
+        if (w.z > z1) w.z = z0;
+        crossers.set(i, place(w.x, Math.abs(Math.sin(t * 6.5 + w.ph)) * 0.02, w.z, w.dir > 0 ? 0 : Math.PI));
+        crossers.edge[i] = pathFade(w.z, z0, z1, 2);
+      });
+      crossers.dirty();
+    };
+  }
+
+  // each beat owns its materials (cloned where another beat shares one) and its crowds
+  {
+    const owner = new Map<THREE.Material, Beat>();
+    for (const b of beats) {
+      const mats = new Set<THREE.Material>(), crowds = new Set<Crowd>();
+      const walk = (o: THREE.Object3D) => {
+        if (o.userData.ownFade) return;
+        if (o.userData.crowd) crowds.add(o.userData.crowd as Crowd);
+        else {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh && mesh.material) {
+            const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            const own = list.map((m) => {
+              if (m.transparent) return m;
+              const was = owner.get(m);
+              const mine = was && was !== b ? m.clone() : m;
+              owner.set(mine, b);
+              mine.alphaHash = true;
+              mats.add(mine);
+              return mine;
+            });
+            mesh.material = Array.isArray(mesh.material) ? own : own[0];
+          }
+        }
+        o.children.forEach(walk);
+      };
+      walk(b.group);
+      b.mats = [...mats];
+      b.crowds = [...crowds];
+    }
+  }
+
   // shared resources
   keep(cloth);
   keep(fixedMat);
@@ -656,10 +821,16 @@ export async function buildPeople(ctx: BuildCtx): Promise<Zone> {
     radius: 1e6,
     update(s) {
       cam.copy(s.camera.position);
+      const F = 0.014;
       for (const b of beats) {
-        const on = s.p >= b.range[0] && s.p <= b.range[1];
-        b.group.visible = on;
-        if (on) b.update(s);
+        const [a0, a1] = b.range;
+        const k = (a0 <= 0 ? 1 : ss(s.p, a0, a0 + F)) * (1 - ss(s.p, a1 - F, a1));
+        b.group.visible = k > 0.002;
+        if (!b.group.visible) { b.k = 0; continue; }
+        if (Math.abs(k - b.k) > 1e-3) for (const m of b.mats) m.opacity = k;
+        b.k = k;
+        b.update(s);
+        for (const c of b.crowds) c.apply(k);
       }
     },
   };

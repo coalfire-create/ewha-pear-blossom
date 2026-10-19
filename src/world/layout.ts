@@ -27,6 +27,9 @@ export const ECC = {
   STAIR_END: -88,
   W: 7.5,
   DEPTH: 13,
+  /** the grand stairs: number of treads and half width of the central flight */
+  STEPS: 44,
+  CW: 4.2,
   /** the opening in the lawn that the global terrain must leave out (x, z ranges) */
   hole: { x0: -8.4, x1: 8.4, z0: -88, z1: 50 },
 };
@@ -49,6 +52,16 @@ export function groundAt(x: number, z: number) {
   return x > h.x0 + 0.9 && x < h.x1 - 0.9 && z < h.z1 && z > h.z0 ? eccGround(z) : 0;
 }
 
+/** Where feet go: the ground, but on the grand stairs the top of the tread rather than the ramp line. */
+export function walkGround(x: number, z: number) {
+  const { RAMP_END, STAIR_END, DEPTH, STEPS, CW } = ECC;
+  if (Math.abs(x) < CW && z < RAMP_END && z > STAIR_END) {
+    const i = Math.min(STEPS - 1, Math.floor((RAMP_END - z) / ((RAMP_END - STAIR_END) / STEPS)));
+    return -DEPTH + (DEPTH / STEPS) * (i + 1);
+  }
+  return groundAt(x, z);
+}
+
 export const PFEIFFER = { pos: new THREE.Vector3(0, 0, -134), scale: 0.9, front: -129.5 };
 export const FORECOURT = { x0: -22, x1: 22, z0: -126, z1: -88 };
 export const AUDITORIUM = { pos: new THREE.Vector3(-62, 0, -108), rotY: Math.PI / 2, frontX: -46 };
@@ -56,16 +69,29 @@ export const WEST_PATH = { z: -108, x0: -14, x1: -34, width: 5 };
 export const AVENUE = { x: -34, z0: -122, z1: -212, width: 5 };
 export const LAWN = { center: new THREE.Vector3(-34, 0, -262), radius: 46 };
 
+/**
+ * The walk was first laid out on a 0..1 scale; the east quad (the 1935 gothic
+ * buildings and the story of Ewha's firsts) is spliced in right after Pfeiffer
+ * Hall. `at` maps a position on that original scale to global progress;
+ * `right` picks the far side of the splice for the splice point itself.
+ */
+export const SPLICE = { at: 0.55, len: 0.18 };
+export const at = (x: number, right = x > SPLICE.at) => x * (1 - SPLICE.len) + (right ? SPLICE.len : 0);
+
+/** The east quad: Music Hall to the east, the Gymnasium to the north, a lawn between. */
+export const QUAD = { center: new THREE.Vector3(61, 0, -112), x0: 44, x1: 78, z0: -128, z1: -96, musicX: 80, gymZ: -134 };
+
 /** Chapters along the single scroll, as fractions of global progress. */
 export const CHAPTERS = {
-  hero: [0, 0.06],
-  gate: [0.06, 0.16],
-  ecc: [0.16, 0.4],
-  pfeiffer: [0.4, 0.55],
-  auditorium: [0.55, 0.68],
-  avenue: [0.68, 0.82],
-  night: [0.82, 0.96],
-  finale: [0.96, 1],
+  hero: [0, at(0.06)],
+  gate: [at(0.06), at(0.16)],
+  ecc: [at(0.16), at(0.4)],
+  pfeiffer: [at(0.4), at(0.55)],
+  quad: [at(0.55), at(0.55, true)],
+  auditorium: [at(0.55, true), at(0.68)],
+  avenue: [at(0.68), at(0.82)],
+  night: [at(0.82), at(0.96)],
+  finale: [at(0.96), 1],
 } as const;
 export type ChapterId = keyof typeof CHAPTERS;
 
@@ -77,7 +103,7 @@ export function local(p: number, id: ChapterId) {
 
 /** Clock time shown in the UI for a given progress, in minutes after midnight. */
 export function clockAt(p: number) {
-  const keys: [number, number][] = [[0, 5 * 60 + 40], [0.16, 8 * 60 + 20], [0.4, 12 * 60 + 30], [0.55, 15 * 60 + 40], [0.68, 17 * 60 + 50], [0.82, 19 * 60 + 30], [1, 21 * 60 + 40]];
+  const keys: [number, number][] = [[0, 5 * 60 + 40], [at(0.16), 8 * 60 + 20], [at(0.4), 12 * 60 + 30], [at(0.55, true), 15 * 60 + 40], [at(0.68), 17 * 60 + 50], [at(0.82), 19 * 60 + 30], [1, 21 * 60 + 40]];
   for (let i = 1; i < keys.length; i++)
     if (p <= keys[i][0]) return THREE.MathUtils.lerp(keys[i - 1][1], keys[i][1], (p - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]));
   return keys[keys.length - 1][1];

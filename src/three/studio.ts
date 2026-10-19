@@ -26,6 +26,8 @@ export interface StudioOptions {
   ao?: { radius?: number; intensity?: number; falloff?: number } | null;
   /** strength of the vignette / grain finish, 0 disables */
   film?: number;
+  /** shadow map size for directional lights (point/spot lights get half) */
+  shadowSize?: number;
 }
 
 export const narrow = () => window.innerWidth < 820;
@@ -173,12 +175,14 @@ export class Studio {
   private dpr: number;
   private frameTimes: number[] = [];
   private settleUntil = 0;
+  private shadowSize: number;
 
   constructor(public host: HTMLElement, o: StudioOptions = {}) {
     // supersample on standard-density screens; cap at 2x on retina. If the
     // machine can't hold a steady frame rate the ratio steps down (see adapt)
     this.dprMax = Math.min(Math.max(window.devicePixelRatio || 1, 1.5), o.dprMax ?? 2);
     this.dprMin = Math.min(this.dprMax, 1);
+    this.shadowSize = o.shadowSize ?? 4096;
     this.dpr = this.dprMax;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: o.background === null, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(this.dpr);
@@ -305,7 +309,10 @@ export class Studio {
     const median = f.slice().sort((a, b) => a - b)[f.length >> 1];
     f.length = 0;
     if (median < 22) return;
-    this.dpr = Math.max(this.dprMin, Math.round((this.dpr - 0.25) * 4) / 4);
+    // pixel cost scales with dpr², so aim straight for ~55fps in one step:
+    // every resize reallocates the render targets and costs a frame
+    const aim = this.dpr * Math.sqrt(18 / median);
+    this.dpr = Math.max(this.dprMin, Math.min(this.dpr - 0.25, Math.floor(aim * 4) / 4));
     this.renderer.setPixelRatio(this.dpr);
     this.resize();
     this.settleUntil = now + 1500;
@@ -337,22 +344,14 @@ export class Studio {
     }
     this.releaseGeometryOnUpload();
     await r.compileAsync(this.scene, this.camera);
-    // one throwaway 1×1 draw of everything, culling off, uploads every vertex
-    // buffer now (freeing the JS copies) instead of mid-scroll
-    const rt = new THREE.WebGLRenderTarget(1, 1), flat = new THREE.MeshBasicMaterial();
+    // one full frame of everything with culling off: uploads every vertex
+    // buffer now (freeing the JS copies) and compiles the shader variants
+    // compileAsync can't see — shadow-depth and AO-normal versions of every
+    // material — so none of them stalls a frame mid-scroll
     const culled: THREE.Object3D[] = [];
     this.scene.traverse((o) => { if (o.frustumCulled) { o.frustumCulled = false; culled.push(o); } });
-    const auto = r.shadowMap.autoUpdate;
-    r.shadowMap.autoUpdate = false;
-    this.scene.overrideMaterial = flat;
-    r.setRenderTarget(rt);
-    r.render(this.scene, this.camera);
-    r.setRenderTarget(null);
-    this.scene.overrideMaterial = null;
-    r.shadowMap.autoUpdate = auto;
+    this.composer.render(0);
     for (const o of culled) o.frustumCulled = true;
-    rt.dispose();
-    flat.dispose();
     this.settle(2500);
   }
 
@@ -386,7 +385,8 @@ export class Studio {
         };
       }
       for (const a of [...Object.values(g.attributes), g.index])
-        if (a && !(a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) (a as THREE.BufferAttribute).onUpload(drop);
+        // attributes rewritten every frame (crowd fades) keep their arrays
+        if (a && !(a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute && (a as THREE.BufferAttribute).usage !== THREE.DynamicDrawUsage) (a as THREE.BufferAttribute).onUpload(drop);
     });
   }
 
@@ -395,7 +395,7 @@ export class Studio {
     this.scene.traverse((o) => {
       const l = o as THREE.DirectionalLight | THREE.SpotLight | THREE.PointLight;
       if (!l.isLight || !l.castShadow || !l.shadow) return;
-      const size = (l as THREE.DirectionalLight).isDirectionalLight ? 4096 : 2048;
+      const size = (l as THREE.DirectionalLight).isDirectionalLight ? this.shadowSize : this.shadowSize / 2;
       l.shadow.mapSize.set(Math.max(l.shadow.mapSize.x, size), Math.max(l.shadow.mapSize.y, size));
       if (l.shadow.radius <= 1) l.shadow.radius = (l as THREE.DirectionalLight).isDirectionalLight ? 2.5 : 3.5;
     });
