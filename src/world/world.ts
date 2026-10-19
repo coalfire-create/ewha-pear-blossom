@@ -26,6 +26,9 @@ const KEYS: [number, THREE.Vector3, THREE.Vector3][] = [
   [at(0.38), valley(0, -42), valley(0, -66, 4)],
   [at(0.42), valley(0, -60, 1.9), V(0, 4, -100)],
   [at(0.46), valley(0, -76, 1.8), V(0, 10, -128)],
+  // up the last flight on the treads, cresting at the top of the stairs
+  [at(0.473), valley(0, -82, 1.95), V(0, 10.5, -130)],
+  [at(0.487), V(0, 1.8, -89.5), V(0, 11.5, -132)],
   [at(0.5), V(0, 1.8, -96), V(0, 12.5, -134)],
   [at(0.54), V(11, 3.2, -104), V(0, 13, -134)],
   // the east quad: across to the 1935 Music Hall, a turn to the Gymnasium,
