@@ -3,12 +3,16 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 
 // Shared rendering setup for every hand-built scene on the page: physically
-// based lighting from a studio environment map, MSAA, ACES tone mapping and a
-// bloom pass, rendered only while the host is on screen.
+// based lighting from a studio environment map, supersampled MSAA, soft PCF
+// shadows at high resolution, ground-truth ambient occlusion, ACES tone
+// mapping, bloom and a filmic finish (vignette, grain, faint lens fringing),
+// rendered only while the host is on screen.
 
 export interface StudioOptions {
   fov?: number;
@@ -18,9 +22,63 @@ export interface StudioOptions {
   envIntensity?: number;
   shadows?: boolean;
   dprMax?: number;
+  /** screen-space ambient occlusion; radius in world units. null disables */
+  ao?: { radius?: number; intensity?: number; falloff?: number } | null;
+  /** strength of the vignette / grain finish, 0 disables */
+  film?: number;
 }
 
 export const narrow = () => window.innerWidth < 820;
+
+/**
+ * GTAO that only sees solid geometry: sprites, glows, light beams and other
+ * see-through additive surfaces would otherwise darken what is behind them.
+ */
+class SolidGTAOPass extends GTAOPass {
+  _overrideVisibility() {
+    const cache = (this as unknown as { _visibilityCache: THREE.Object3D[] })._visibilityCache;
+    this.scene.traverse((o) => {
+      if (!o.visible) return;
+      const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      const see = (m: THREE.Material) => (m.transparent && !m.depthWrite) || m.blending === THREE.AdditiveBlending || (m as THREE.MeshPhysicalMaterial).transmission > 0.5 || (m as THREE.ShaderMaterial).isShaderMaterial;
+      if ((o as THREE.Points).isPoints || (o as THREE.Line).isLine || (o as THREE.Sprite).isSprite || o.userData.noAO || (mat && (Array.isArray(mat) ? mat.every(see) : see(mat)))) {
+        o.visible = false;
+        cache.push(o);
+      }
+    });
+  }
+}
+
+/** Scrubs NaN/Inf and clamps stray HDR fireflies so bloom never balloons a single hot pixel. */
+const ClampShader = {
+  uniforms: { tDiffuse: { value: null }, uMax: { value: 24 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uMax; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(min(c.rgb, vec3(uMax)), c.a); }`,
+};
+
+/** Vignette, animated grain and a faint chromatic fringe toward the corners, in display space. */
+const FilmShader = {
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uAmount: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uTime, uAmount; uniform vec2 uRes; varying vec2 vUv;
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    void main(){
+      vec2 d = vUv - 0.5;
+      float r2 = dot(d, d);
+      vec2 off = d * r2 * 0.005 * uAmount;
+      vec3 c = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+      float a = texture2D(tDiffuse, vUv).a;
+      c *= mix(1.0, smoothstep(0.95, 0.18, r2 * 1.6), 0.55 * uAmount);
+      float n = hash(vUv * uRes + fract(uTime * 7.31) * 113.0) - 0.5;
+      float lum = dot(c, vec3(0.299, 0.587, 0.114));
+      c += n * 0.035 * uAmount * (1.0 - lum * 0.7);
+      gl_FragColor = vec4(c, a);
+    }`,
+};
 
 /**
  * A dark product-photography room for reflections: deep green walls with one
@@ -63,9 +121,12 @@ export class Studio {
   private io: IntersectionObserver;
   private ro: ResizeObserver;
   private env: THREE.Texture;
+  private ao: GTAOPass | null = null;
+  private film: ShaderPass | null = null;
 
   constructor(public host: HTMLElement, o: StudioOptions = {}) {
-    const dpr = Math.min(window.devicePixelRatio || 1, o.dprMax ?? (narrow() ? 1.5 : 2));
+    // supersample on standard-density screens; cap at 2x on retina
+    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1.5), o.dprMax ?? 2);
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: o.background === null, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(dpr);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -73,7 +134,7 @@ export class Studio {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     if (o.shadows) {
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.renderer.shadowMap.type = THREE.PCFShadowMap;
     }
     const el = this.renderer.domElement;
     el.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
@@ -90,15 +151,32 @@ export class Studio {
     this.scene.environment = this.env;
     this.scene.environmentIntensity = o.envIntensity ?? 1;
 
-    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    const samples = Math.min(8, this.renderer.capabilities.maxSamples || 4);
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.composer.addPass(new ShaderPass(ClampShader));
+    const debug = new URLSearchParams(location.search);
+    if (o.ao !== null && !debug.has('noao')) {
+      const a = o.ao ?? {};
+      this.ao = new SolidGTAOPass(this.scene, this.camera, 1, 1);
+      this.ao.output = GTAOPass.OUTPUT.Default;
+      this.ao.blendIntensity = a.intensity ?? 0.9;
+      this.ao.updateGtaoMaterial({ radius: a.radius ?? 0.45, distanceExponent: 1.4, thickness: 1.5, distanceFallOff: a.falloff ?? 1, scale: 1.1, samples: 24, screenSpaceRadius: false });
+      this.ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
+      this.composer.addPass(this.ao);
+    }
     if (o.bloom !== null) {
       const b = o.bloom ?? { strength: 0.6, radius: 0.5, threshold: 0.85 };
       this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), b.strength, b.radius, b.threshold);
       this.composer.addPass(this.bloom);
     }
     this.composer.addPass(new OutputPass());
+    if ((o.film ?? 1) > 0) {
+      this.film = new ShaderPass(FilmShader);
+      this.film.uniforms.uAmount.value = o.film ?? 1;
+      this.composer.addPass(this.film);
+    }
 
     this.io = new IntersectionObserver(([e]) => (this.visible = e.isIntersecting), { rootMargin: '120px' });
     this.io.observe(host);
@@ -119,6 +197,8 @@ export class Studio {
     const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
+    const pr = this.renderer.getPixelRatio();
+    this.film?.uniforms.uRes.value.set(w * pr, h * pr);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -149,7 +229,19 @@ export class Studio {
     return THREE.MathUtils.clamp((window.innerHeight - r.top) / (window.innerHeight + r.height), 0, 1);
   }
 
+  /** Sharper, softer-edged shadows for every shadow-casting light in the scene. */
+  private tuneShadows() {
+    this.scene.traverse((o) => {
+      const l = o as THREE.DirectionalLight | THREE.SpotLight | THREE.PointLight;
+      if (!l.isLight || !l.castShadow || !l.shadow) return;
+      const size = (l as THREE.DirectionalLight).isDirectionalLight ? 4096 : 2048;
+      l.shadow.mapSize.set(Math.max(l.shadow.mapSize.x, size), Math.max(l.shadow.mapSize.y, size));
+      if (l.shadow.radius <= 1) l.shadow.radius = (l as THREE.DirectionalLight).isDirectionalLight ? 2.5 : 3.5;
+    });
+  }
+
   start() {
+    this.tuneShadows();
     const loop = () => {
       this.raf = requestAnimationFrame(loop);
       const now = performance.now();
@@ -159,6 +251,7 @@ export class Studio {
       this.time += dt;
       this.pointer.lerp(this.target, 1 - Math.exp(-dt * 4));
       for (const f of this.frame) f(dt, this.time);
+      if (this.film) this.film.uniforms.uTime.value = this.time;
       this.composer.render(dt);
     };
     loop();
@@ -178,6 +271,9 @@ export class Studio {
     });
     this.trash.forEach((d) => d.dispose());
     this.env.dispose();
+    this.ao?.dispose();
+    this.film?.dispose();
+    this.bloom?.dispose();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

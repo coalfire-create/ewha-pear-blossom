@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Studio, glowTexture, mulberry, narrow } from '../three/studio';
-import { figure, lantern, rig, POSE, LANTERN, type Era } from '../three/student';
+import { figure, lantern, rig, POSE, LANTERN, LANTERN_GRIP, type Era } from '../three/student';
 import { petalGeometry, petalMaterial } from '../three/blossom';
 
 // I · 1886 → 2026. One student in hanbok holding a lantern, alone in a pool of
@@ -43,7 +43,7 @@ export function buildStudents(host: HTMLElement, section: HTMLElement, onStep: (
   POSE.holdFront(hero.armL, -1);
   POSE.holdFront(hero.armR, 1);
   const lamp = lantern(1.1);
-  lamp.position.copy(LANTERN).add(new THREE.Vector3(0, 0.02, 0));
+  lamp.position.copy(LANTERN_GRIP);
   ((lamp.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set('#ffcf8a').multiplyScalar(1.7);
   hero.root.add(lamp);
   const lampLight = new THREE.PointLight('#ffc77a', 1.0, 4, 1.6);
@@ -122,8 +122,11 @@ export function buildStudents(host: HTMLElement, section: HTMLElement, onStep: (
   const glowGeo = new THREE.BufferGeometry();
   glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
   glowGeo.setDrawRange(0, 0);
-  const glowMat = new THREE.PointsMaterial({ map: st.keep(glowTexture('rgba(255,214,150,1)', 'rgba(255,214,150,0)')), size: 9 * st.renderer.getPixelRatio(), sizeAttenuation: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
-  scene.add(new THREE.Points(glowGeo, glowMat));
+  const glowMat = new THREE.PointsMaterial({ map: st.keep(glowTexture('rgba(255,214,150,1)', 'rgba(255,214,150,0)')), size: 11 * st.renderer.getPixelRatio(), sizeAttenuation: false, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, opacity: 0 });
+  // drawn over the crowd: from overhead the lanterns sit under the students' heads
+  const glowPts = new THREE.Points(glowGeo, glowMat);
+  glowPts.renderOrder = 5;
+  scene.add(glowPts);
 
   // the growth front: a ring of light that widens with every generation
   const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.012, 6, 256), new THREE.MeshBasicMaterial({ color: new THREE.Color('#8fdcb4').multiplyScalar(2.2), toneMapped: false, transparent: true }));

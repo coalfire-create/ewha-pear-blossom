@@ -45,6 +45,24 @@ export async function buildVirtue(host: HTMLElement, section: HTMLElement, onSte
   halo.position.set(0.9, 2.4, -2.4);
   halo.scale.setScalar(3.6);
   truth.add(halo);
+  // transmission only refracts opaque surfaces, so give the glass a lit
+  // backdrop: a bright mint-white disc that fades exactly into the background
+  const bc = document.createElement('canvas');
+  bc.width = bc.height = 256;
+  const bg = bc.getContext('2d')!;
+  const rg = bg.createRadialGradient(128, 128, 0, 128, 128, 128);
+  rg.addColorStop(0, '#ffffff');
+  rg.addColorStop(0.25, '#d8f6e6');
+  rg.addColorStop(0.6, '#3d6b55');
+  rg.addColorStop(1, '#040f0a');
+  bg.fillStyle = rg;
+  bg.fillRect(0, 0, 256, 256);
+  const backTex = st.keep(new THREE.CanvasTexture(bc));
+  backTex.colorSpace = THREE.SRGBColorSpace;
+  const backdrop = new THREE.Mesh(new THREE.CircleGeometry(2.2, 96), new THREE.MeshBasicMaterial({ map: backTex, fog: false }));
+  backdrop.position.set(0.9, 2.4, -3.2);
+  backdrop.userData.noAO = true;
+  truth.add(backdrop);
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(glass.geometry, 30), new THREE.LineBasicMaterial({ color: new THREE.Color('#ffffff').multiplyScalar(1.5), toneMapped: false, transparent: true, opacity: 0.45 }));
   glass.add(edges);
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 8, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffffff').multiplyScalar(3), toneMapped: false, transparent: true, opacity: 0.9 }));
@@ -71,7 +89,7 @@ export async function buildVirtue(host: HTMLElement, section: HTMLElement, onSte
     page.rotation.y = -sx * 0.25;
     book.add(page);
   }
-  book.position.set(0, 0.92, 0.22);
+  book.position.set(0, 0.99, 0.27);
   book.rotation.x = -0.8;
   reader.root.add(book);
   truth.add(reader.root);
@@ -110,11 +128,12 @@ export async function buildVirtue(host: HTMLElement, section: HTMLElement, onSte
     r.root.position.set(Math.sin(a) * 2.7, 0, -Math.cos(a) * 1.1 + 0.6);
     r.root.rotation.y = -a * 0.6;
     POSE.rest(r.armL, -1);
-    POSE.holdFront(r.armR, 1);
+    POSE.holdOut(r.armR, 1, 0);
     const lamp = lantern(1);
-    lamp.position.set(0, -0.08, 0.02);
+    lamp.position.set(0, -0.005, 0);
     r.handR.add(lamp);
     const light = new THREE.PointLight('#ffc77a', 0, 3, 1.6);
+    light.position.y = -0.155;
     lamp.add(light);
     good.add(r.root);
     return { r, light, glass: (lamp.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial };
@@ -181,10 +200,10 @@ export async function buildVirtue(host: HTMLElement, section: HTMLElement, onSte
     const gIn = c.idx === 1 ? c.inner : c.idx > 1 ? 1 : 0;
     chain.forEach((h, i) => {
       const k = THREE.MathUtils.clamp(gIn * (chain.length + 0.5) - i, 0, 1);
-      h.glass.color.copy(unlit).lerp(lit, k).multiplyScalar(1 + k * 1.6);
-      h.light.intensity = k * (1.4 + Math.sin(t * 8 + i) * 0.1);
+      h.glass.color.copy(unlit).lerp(lit, k).multiplyScalar(1 + k * 0.9);
+      h.light.intensity = k * (0.9 + Math.sin(t * 8 + i) * 0.1);
       const handing = k > 0.05 && k < 0.95 ? 1 : 0;
-      h.r.armR.rotation.x = THREE.MathUtils.lerp(-0.75, -1.25, handing);
+      POSE.holdOut(h.r.armR, 1, handing);
       h.r.head.rotation.y = Math.sin(t * 0.5 + i) * 0.15 + (k > 0.5 ? 0.25 : -0.15);
     });
     jade.rotation.y = Math.sin(t * 0.35) * 0.3;

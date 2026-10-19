@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Studio, glowTexture, mulberry, narrow } from '../three/studio';
-import { rig } from '../three/student';
+import { rig, POSE } from '../three/student';
 
 // IV · Women founders on the world stage. A founder presents under spotlights
 // with a microphone, gesturing to a dot-matrix globe behind her; arcs of light
@@ -55,8 +55,8 @@ export function buildFounder(host: HTMLElement, section: HTMLElement, onStep: (i
   const micHead = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 12), new THREE.MeshStandardMaterial({ color: '#2a2a2a', metalness: 0.8, roughness: 0.35 }));
   micHead.position.y = 0.08;
   mic.add(micBody, micHead);
-  mic.position.set(0, -0.02, 0.03);
-  mic.rotation.x = -0.3;
+  mic.position.set(0, -0.01, 0);
+  mic.rotation.x = Math.PI - 0.25;
   f.handR.add(mic);
 
   // spotlights with visible beams
@@ -166,8 +166,9 @@ export function buildFounder(host: HTMLElement, section: HTMLElement, onStep: (i
     camera.lookAt(THREE.MathUtils.lerp(0.3, -0.2, b), THREE.MathUtils.lerp(1.6, 3.6, b), THREE.MathUtils.lerp(0, -2.5, b));
 
     // she presents: mic up, free hand sweeping toward the globe
-    f.armR.rotation.set(-2.05, 0.1, 0.3);
+    POSE.mic(f.armR, 1);
     f.armL.rotation.set(-0.9 - Math.sin(t * 0.9) * 0.25 - b * 0.5, -0.4, -0.7 - b * 0.4);
+    f.forearmL.rotation.set(-0.55 + b * 0.35, 0, 0);
     f.head.rotation.y = Math.sin(t * 0.5) * 0.35 - b * 0.4;
     f.head.rotation.x = -b * 0.25;
     f.root.rotation.y = 0.25 + Math.sin(t * 0.35) * 0.12;

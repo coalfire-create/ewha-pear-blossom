@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Studio, glowTexture, mulberry, narrow } from '../three/studio';
-import { rig, POSE, type Rig } from '../three/student';
+import { rig, POSE, stride, type Rig } from '../three/student';
 import { branchGeometry, petalGeometry, petalMaterial, scatterBlossoms } from '../three/blossom';
 
 // V · 벗. A campus path at dusk. One student calls out "벗!" and waves; the
@@ -128,8 +128,7 @@ export async function buildFriends(host: HTMLElement, section: HTMLElement, onSt
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), v = new THREE.Vector3();
   const walk = (r: Rig, t: number, amt: number) => {
     r.root.position.y = Math.abs(Math.sin(t * 7)) * 0.025 * amt;
-    r.armL.rotation.set(Math.sin(t * 7) * 0.35 * amt, 0, -0.1);
-    r.armR.rotation.set(-Math.sin(t * 7) * 0.35 * amt, 0, 0.1);
+    stride(r, t * 7, amt);
   };
   const show = (b: THREE.Sprite, k: number, at: THREE.Vector3) => {
     b.material.opacity = k;
@@ -152,6 +151,7 @@ export async function buildFriends(host: HTMLElement, section: HTMLElement, onSt
     else if (go > 0.01) walk(caller, t, go);
     else {
       caller.root.position.y = 0;
+      stride(caller, 0, 0);
       if (turn < 0.98 || gather > 0) POSE.wave(caller.armR, 1, t);
       POSE.rest(caller.armL, -1);
     }
@@ -163,6 +163,7 @@ export async function buildFriends(host: HTMLElement, section: HTMLElement, onSt
     else if (go > 0.01) walk(friend, t + 0.5, go);
     else {
       friend.root.position.y = 0;
+      stride(friend, 0, 0);
       turn > 0.6 ? POSE.wave(friend.armR, 1, t + 1) : POSE.rest(friend.armR, 1);
       POSE.rest(friend.armL, -1);
     }
@@ -178,6 +179,7 @@ export async function buildFriends(host: HTMLElement, section: HTMLElement, onSt
       else if (go > 0.01) walk(c.r, t + i, go);
       else {
         c.r.root.position.y = 0;
+        stride(c.r, 0, 0);
         POSE.rest(c.r.armL, -1);
         if (i === 1 && gather > 0.8) POSE.wave(c.r.armR, 1, t + 2);
         else POSE.rest(c.r.armR, 1);
