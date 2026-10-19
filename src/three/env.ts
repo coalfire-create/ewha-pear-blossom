@@ -81,10 +81,16 @@ export function pbrMaps(w: number, h: number, rgb: Uint8ClampedArray, height: Fl
       d[i * 4 + 3] = 255;
     }
   });
-  return {
-    map, normalMap, roughnessMap,
-    dispose() { map.dispose(); normalMap.dispose(); roughnessMap.dispose(); },
-  };
+  return mapSet(map, normalMap, roughnessMap);
+}
+
+/**
+ * Built outside pbrMaps on purpose: a closure created in there would keep its
+ * whole scope alive — including the raw colour/height/roughness arrays, tens
+ * of MB per set — for as long as the textures live.
+ */
+function mapSet(map: THREE.CanvasTexture, normalMap: THREE.CanvasTexture, roughnessMap: THREE.CanvasTexture): PBRMaps {
+  return { map, normalMap, roughnessMap, dispose() { map.dispose(); normalMap.dispose(); roughnessMap.dispose(); } };
 }
 
 /** Sets the same repeat on every map of a set. */
@@ -281,23 +287,46 @@ export function grassField(o: {
       transformed.z += sway * 0.6;`);
   };
   mat.customProgramCacheKey = () => 'grass-v1';
-  const mesh = new THREE.InstancedMesh(g, mat, o.count);
+  // place every blade first, then bin them into square tiles: each tile is its
+  // own instanced mesh, so tiles off screen are frustum-culled and far tiles
+  // draw a thinner (still uniform, since blades are in random order) subset
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), e = new THREE.Euler();
   const dry = new THREE.Color(o.dry ?? '#c9c27a'), white = new THREE.Color('#ffffff'), c = new THREE.Color();
+  const TILE = 18;
+  const bins = new Map<string, { mats: number[]; cols: number[] }>();
   let n = 0;
   for (let i = 0; i < o.count * 3 && n < o.count; i++) {
     const p = o.place(o.rnd);
     if (!p) continue;
     const h = h0 + (h1 - h0) * o.rnd();
     q.setFromEuler(e.set((o.rnd() - 0.5) * 0.5, o.rnd() * Math.PI * 2, (o.rnd() - 0.5) * 0.5));
-    mesh.setMatrixAt(n, m.compose(p, q, s.set(0.8 + o.rnd() * 0.6, h, 1)));
-    mesh.setColorAt(n, c.copy(white).lerp(dry, o.rnd() < 0.12 ? 0.5 + o.rnd() * 0.4 : o.rnd() * 0.15).multiplyScalar(0.8 + o.rnd() * 0.35));
+    m.compose(p, q, s.set(0.8 + o.rnd() * 0.6, h, 1));
+    c.copy(white).lerp(dry, o.rnd() < 0.12 ? 0.5 + o.rnd() * 0.4 : o.rnd() * 0.15).multiplyScalar(0.8 + o.rnd() * 0.35);
+    const key = `${Math.floor(p.x / TILE)},${Math.floor(p.z / TILE)}`;
+    let b = bins.get(key);
+    if (!b) bins.set(key, (b = { mats: [], cols: [] }));
+    b.mats.push(...m.elements);
+    b.cols.push(c.r, c.g, c.b);
     n++;
   }
-  mesh.count = n;
-  mesh.receiveShadow = true;
-  mesh.frustumCulled = false;
-  mesh.instanceMatrix.needsUpdate = true;
+  const mesh = new THREE.Group();
+  const near = 40, far = 120, thin = 0.4;
+  for (const b of bins.values()) {
+    const full = b.cols.length / 3;
+    const im = new THREE.InstancedMesh(g, mat, full);
+    im.instanceMatrix.array.set(b.mats);
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(b.cols), 3);
+    im.receiveShadow = true;
+    im.computeBoundingSphere();
+    im.boundingSphere!.radius += 0.6; // room for the wind sway
+    const ctr = im.boundingSphere!.center, rad = im.boundingSphere!.radius;
+    im.onBeforeRender = (_r, _s, cam) => {
+      const d = Math.max(0, cam.position.distanceTo(ctr) - rad);
+      const k = d <= near ? 1 : THREE.MathUtils.lerp(1, thin, Math.min(1, (d - near) / (far - near)));
+      im.count = Math.max(1, Math.round(full * k));
+    };
+    mesh.add(im);
+  }
   return { mesh, tick: (t: number) => (time.value = t) };
 }
 

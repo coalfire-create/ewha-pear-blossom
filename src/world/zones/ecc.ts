@@ -218,7 +218,18 @@ export function buildEccZone(ctx: BuildCtx): Zone {
   }
 
   // ── curtain walls: clear glass on a mullion grid, coping and roof-edge rails
-  const glassMat = new THREE.MeshPhysicalMaterial({ color: '#e4f0ec', metalness: 0, roughness: 0.03, transmission: 0.94, thickness: 0.02, ior: 1.5, envMapIntensity: 1.4, side: THREE.DoubleSide, specularIntensity: 1 });
+  // thin clear glass, composed the way three's thin-wall transmission is
+  // (what's behind × tint × 0.94, plus reflections) but with blending instead
+  // of a transmission pass, which re-rendered the whole scene every frame:
+  // the shader writes only the 6% diffuse and the reflections, and the blend
+  // stage multiplies the image behind by the tint
+  const glassTint = new THREE.Color('#e4f0ec');
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: glassTint.clone().multiplyScalar(0.06), metalness: 0, roughness: 0.03, ior: 1.5, envMapIntensity: 1.4, side: THREE.DoubleSide, specularIntensity: 1,
+    transparent: true, depthWrite: false,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.ConstantColorFactor,
+  });
+  glassMat.blendColor.copy(glassTint).multiplyScalar(0.94);
   const frame = new THREE.MeshStandardMaterial({ color: '#545a5c', metalness: 0.8, roughness: 0.35 });
   const mullions: THREE.Matrix4[] = [], transoms: THREE.Matrix4[] = [];
   for (const sx of [-1, 1]) {

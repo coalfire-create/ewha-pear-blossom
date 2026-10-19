@@ -211,6 +211,18 @@ export default function App() {
 
     // drive the overlay from the progress the camera is actually showing
     let raf = 0, last = '', lastStop = '';
+    // only touch the DOM when a value actually changes: a custom property set
+    // on <html> every frame restyles the whole page every frame
+    const memo = new WeakMap<HTMLElement, Record<string, string>>();
+    const put = (el: HTMLElement, prop: string, v: string) => {
+      let m = memo.get(el);
+      if (!m) memo.set(el, (m = {}));
+      if (m[prop] === v) return;
+      m[prop] = v;
+      if (prop === 'text') el.textContent = v;
+      else if (prop.startsWith('--')) el.style.setProperty(prop, v);
+      else el.style[prop as 'visibility' | 'transform'] = v;
+    };
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const p = w ? w.shown() : scrollProgress();
@@ -220,22 +232,24 @@ export default function App() {
         if (!el) return;
         const [a, z] = b.at, fade = 0.012;
         const k = Math.min(Math.max((p - a) / fade, 0), 1) * Math.min(Math.max((z - p) / fade, 0), 1);
-        el.style.setProperty('--k', k.toFixed(3));
+        put(el, '--k', k.toFixed(3));
+        // fully faded cards still cost a blur + backdrop blur each frame unless hidden
+        put(el, 'visibility', k > 0 ? 'visible' : 'hidden');
         el.classList.toggle('on', k > 0.5);
         if (k > bestK) { bestK = k; best = b.id; }
       });
       if (best && best !== last) setActive((last = best));
       const st = (Object.keys(CHAPTERS) as ChapterId[]).filter((c) => c !== 'hero' && c !== 'finale').find((c) => p < CHAPTERS[c][1]) ?? 'night';
       if (st !== lastStop) setStop((lastStop = st) as ChapterId);
-      if (clock.current) clock.current.textContent = fmt(clockAt(p));
+      if (clock.current) put(clock.current, 'text', fmt(clockAt(p)));
       // the sun (then moon) crosses the little arc in the clock as the day passes
       if (sunDot.current) {
         const a = Math.PI * (1 - Math.min(1, p / 0.8));
-        sunDot.current.style.transform = `translate(${Math.cos(a) * 26}px, ${-Math.sin(a) * 26}px)`;
+        put(sunDot.current, 'transform', `translate(${(Math.cos(a) * 26).toFixed(2)}px, ${(-Math.sin(a) * 26).toFixed(2)}px)`);
         sunDot.current.classList.toggle('moon', p > 0.8);
       }
-      if (rail.current) rail.current.style.setProperty('--p', p.toFixed(4));
-      document.documentElement.style.setProperty('--night', Math.min(1, Math.max(0, (p - 0.74) / 0.12)).toFixed(3));
+      if (rail.current) put(rail.current, '--p', p.toFixed(4));
+      put(document.documentElement, '--night', Math.min(1, Math.max(0, (p - 0.74) / 0.12)).toFixed(3));
     };
     loop();
     return () => { alive = false; cancelAnimationFrame(raf); w?.dispose(); delete document.documentElement.dataset.ready; };

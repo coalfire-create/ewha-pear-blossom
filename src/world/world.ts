@@ -90,6 +90,76 @@ export interface World {
   dispose(): void;
 }
 
+/**
+ * Zones place dozens of street lamps, lanterns and spots, and hide whole zones
+ * (or story beats) as the camera moves. In three.js every change in the number
+ * of visible lights recompiles every shader on the page — a long freeze on
+ * each zone boundary — and every visible light is paid for by every pixel.
+ *
+ * So the zones' own lights become virtual: they stay in the scene graph (zones
+ * keep animating their intensity, and they follow whatever they hang from) but
+ * are never drawn. Each frame a fixed set of real lights takes on the lit ones
+ * nearest the camera; the last of them fades out as a farther lamp takes its
+ * place, so the hand-over is invisible.
+ */
+function lightPool(scene: THREE.Scene, zones: Zone[], size: number) {
+  type Src<L> = { l: L; zone: Zone | null };
+  const points: Src<THREE.PointLight>[] = [], spots: Src<THREE.SpotLight>[] = [];
+  scene.updateMatrixWorld(true);
+  const zoneOf = (o: THREE.Object3D) => zones.find((z) => { let x: THREE.Object3D | null = o; while (x && x !== z.group) x = x.parent; return !!x; }) ?? null;
+  scene.traverse((o) => {
+    if ((o as THREE.PointLight).isPointLight) points.push({ l: o as THREE.PointLight, zone: zoneOf(o) });
+    else if ((o as THREE.SpotLight).isSpotLight) spots.push({ l: o as THREE.SpotLight, zone: zoneOf(o) });
+  });
+  for (const s of [...points, ...spots]) s.l.visible = false;
+
+  const realP = Array.from({ length: Math.min(size, points.length) }, () => new THREE.PointLight('#ffffff', 0));
+  const realS = spots.map(() => { const l = new THREE.SpotLight('#ffffff', 0); scene.add(l.target); return l; });
+  scene.add(...realP, ...realS);
+
+  const shown = (o: THREE.Object3D) => { for (let x = o.parent; x; x = x.parent) if (!x.visible) return false; return true; };
+  const wp = new THREE.Vector3();
+  const all = points.map((s) => ({ s, d: 0, at: new THREE.Vector3() }));
+  const lit: typeof all = [];
+  const FADE = 8;
+  return (cam: THREE.Vector3) => {
+    lit.length = 0;
+    for (const e of all) {
+      const l = e.s.l;
+      if (l.intensity <= 1e-3 || (e.s.zone && !e.s.zone.group.visible) || !shown(l)) continue;
+      e.at.setFromMatrixPosition(l.matrixWorld);
+      // rank by how close the edge of its reach comes to the camera
+      e.d = e.at.distanceTo(cam) - (l.distance || 40);
+      lit.push(e);
+    }
+    lit.sort((a, b) => a.d - b.d);
+    const cut = lit.length > realP.length ? lit[realP.length].d : Infinity;
+    realP.forEach((r, k) => {
+      const e = lit[k];
+      if (!e) { r.intensity = 0; return; }
+      const l = e.s.l;
+      r.position.copy(e.at);
+      r.color.copy(l.color);
+      r.distance = l.distance;
+      r.decay = l.decay;
+      r.intensity = l.intensity * THREE.MathUtils.clamp((cut - e.d) / FADE, 0, 1);
+    });
+    realS.forEach((r, k) => {
+      const { l, zone } = spots[k];
+      const on = (!zone || zone.group.visible) && shown(l);
+      r.intensity = on ? l.intensity : 0;
+      if (!on) return;
+      r.position.setFromMatrixPosition(l.matrixWorld);
+      r.target.position.copy(wp.setFromMatrixPosition(l.target.matrixWorld));
+      r.color.copy(l.color);
+      r.distance = l.distance;
+      r.decay = l.decay;
+      r.angle = l.angle;
+      r.penumbra = l.penumbra;
+    });
+  };
+}
+
 export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<World> {
   const lite = narrow();
   const st = new Studio(host, { fov: 50, background: '#c7aab4', exposure: 1, bloom: { strength: 0.42, radius: 0.6, threshold: 0.9 }, envIntensity: 1, shadows: true, ao: { radius: 0.8, intensity: 0.85, falloff: 1 } });
@@ -139,16 +209,20 @@ export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<Wo
   envScene.add(envSky);
   const envGround = new THREE.Mesh(new THREE.CircleGeometry(1500, 32).rotateX(-Math.PI / 2).translate(0, -60, 0), new THREE.MeshBasicMaterial({ color: '#6e6450' }));
   envScene.add(envGround);
+  // the sky is captured into one cube target and prefiltered into one PMREM
+  // target, both reused, so a refresh allocates nothing on the GPU
+  const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: false });
+  const cubeCam = new THREE.CubeCamera(1, 3000, cubeRT);
+  envScene.add(cubeCam);
   let envRT: THREE.WebGLRenderTarget | null = null, envAt = -1;
   const refreshEnv = (p: number) => {
     if (Math.abs(p - envAt) < 0.012) return;
     envAt = p;
-    const next = pmrem.fromScene(envScene, 0.02, 1, 3000);
-    scene.environment = next.texture;
-    envRT?.dispose();
-    envRT = next;
+    cubeCam.update(st.renderer, envScene);
+    envRT = pmrem.fromCubemap(cubeRT.texture, envRT);
+    scene.environment = envRT.texture;
   };
-  st.keep({ dispose: () => { envRT?.dispose(); pmrem.dispose(); envGround.geometry.dispose(); (envGround.material as THREE.Material).dispose(); } });
+  st.keep({ dispose: () => { envRT?.dispose(); cubeRT.dispose(); pmrem.dispose(); envGround.geometry.dispose(); (envGround.material as THREE.Material).dispose(); } });
 
   // ── zones ────────────────────────────────────────────────────────────────
   const zones: Zone[] = [];
@@ -161,6 +235,7 @@ export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<Wo
     scene.add(z.group);
     zones.push(z);
   }
+  const pool = lightPool(scene, zones, lite ? 6 : 12);
   o.onLoad?.(1, 'done');
 
   // ── camera path ──────────────────────────────────────────────────────────
@@ -233,7 +308,19 @@ export async function buildWorld(host: HTMLElement, o: WorldOptions): Promise<Wo
       z.group.visible = !far;
       if (!far) z.update?.(state);
     }
+    pool(camera.position);
+    starMat.size = 1.6 * st.renderer.getPixelRatio();
   });
+
+  // compile every shader and upload every texture behind the loader, with the
+  // camera at its first frame and every zone visible
+  posCurve.getPoint(along(p), pos);
+  lookCurve.getPoint(along(p), look);
+  camera.position.copy(pos);
+  camera.lookAt(look);
+  refreshEnv(p);
+  await st.prewarm();
+  envAt = -1; // captured with the dawn sky; recapture once the first frame sets the real one
   st.start();
 
   return {

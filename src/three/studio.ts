@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 
@@ -35,6 +35,18 @@ export const narrow = () => window.innerWidth < 820;
  * see-through additive surfaces would otherwise darken what is behind them.
  */
 class SolidGTAOPass extends GTAOPass {
+  /** AO is low-frequency: compute it at CSS-pixel resolution, not the supersampled one */
+  scale = 1;
+  setSize(width: number, height: number) {
+    super.setSize(Math.max(1, Math.round(width * this.scale)), Math.max(1, Math.round(height * this.scale)));
+  }
+  /** the normal/depth pre-pass must not re-render the shadow map the main pass already drew */
+  _renderOverride(...args: unknown[]) {
+    const r = args[0] as THREE.WebGLRenderer, auto = r.shadowMap.autoUpdate;
+    r.shadowMap.autoUpdate = false;
+    (GTAOPass.prototype as unknown as { _renderOverride(...a: unknown[]): void })._renderOverride.apply(this, args);
+    r.shadowMap.autoUpdate = auto;
+  }
   _overrideVisibility() {
     const cache = (this as unknown as { _visibilityCache: THREE.Object3D[] })._visibilityCache;
     this.scene.traverse((o) => {
@@ -58,6 +70,38 @@ const ClampShader = {
       if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
       gl_FragColor = vec4(min(c.rgb, vec3(uMax)), c.a); }`,
 };
+
+/**
+ * Renders the scene into its own multisampled target and writes it, clamped
+ * (ClampShader), into the composer's buffers. Only the scene needs MSAA; the
+ * full-screen passes after it run on plain single-sample buffers.
+ */
+class MSAAScenePass extends Pass {
+  private msaa: THREE.WebGLRenderTarget;
+  private quad: FullScreenQuad;
+  private mat: THREE.ShaderMaterial;
+  constructor(private scene: THREE.Scene, private camera: THREE.Camera, samples: number) {
+    super();
+    this.msaa = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples });
+    this.mat = new THREE.ShaderMaterial({ uniforms: THREE.UniformsUtils.clone(ClampShader.uniforms), vertexShader: ClampShader.vertexShader, fragmentShader: ClampShader.fragmentShader });
+    this.mat.uniforms.tDiffuse.value = this.msaa.texture;
+    this.quad = new FullScreenQuad(this.mat);
+  }
+  setSize(w: number, h: number) {
+    this.msaa.setSize(w, h);
+  }
+  render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget) {
+    renderer.setRenderTarget(this.msaa);
+    renderer.render(this.scene, this.camera);
+    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+    this.quad.render(renderer);
+  }
+  dispose() {
+    this.msaa.dispose();
+    this.mat.dispose();
+    this.quad.dispose();
+  }
+}
 
 /** Vignette, animated grain and a faint chromatic fringe toward the corners, in display space. */
 const FilmShader = {
@@ -121,14 +165,23 @@ export class Studio {
   private io: IntersectionObserver;
   private ro: ResizeObserver;
   private env: THREE.Texture;
-  private ao: GTAOPass | null = null;
+  private ao: SolidGTAOPass | null = null;
   private film: ShaderPass | null = null;
+  /** pixel-ratio ceiling for this screen, and the current (possibly lowered) ratio */
+  private dprMax: number;
+  private dprMin: number;
+  private dpr: number;
+  private frameTimes: number[] = [];
+  private settleUntil = 0;
 
   constructor(public host: HTMLElement, o: StudioOptions = {}) {
-    // supersample on standard-density screens; cap at 2x on retina
-    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1.5), o.dprMax ?? 2);
+    // supersample on standard-density screens; cap at 2x on retina. If the
+    // machine can't hold a steady frame rate the ratio steps down (see adapt)
+    this.dprMax = Math.min(Math.max(window.devicePixelRatio || 1, 1.5), o.dprMax ?? 2);
+    this.dprMin = Math.min(this.dprMax, 1);
+    this.dpr = this.dprMax;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: o.background === null, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(dpr);
+    this.renderer.setPixelRatio(this.dpr);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = o.exposure ?? 1;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -151,11 +204,10 @@ export class Studio {
     this.scene.environment = this.env;
     this.scene.environmentIntensity = o.envIntensity ?? 1;
 
-    const samples = Math.min(8, this.renderer.capabilities.maxSamples || 4);
-    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples });
-    this.composer = new EffectComposer(this.renderer, rt);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.composer.addPass(new ShaderPass(ClampShader));
+    // 4x MSAA on top of the supersampled buffer; 8x doubled the colour buffer's memory for no visible gain
+    const samples = Math.min(4, this.renderer.capabilities.maxSamples || 4);
+    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType }));
+    this.composer.addPass(new MSAAScenePass(this.scene, this.camera, samples));
     const debug = new URLSearchParams(location.search);
     if (o.ao !== null && !debug.has('noao')) {
       const a = o.ao ?? {};
@@ -169,6 +221,12 @@ export class Studio {
     if (o.bloom !== null) {
       const b = o.bloom ?? { strength: 0.6, radius: 0.5, threshold: 0.85 };
       this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), b.strength, b.radius, b.threshold);
+      // bloom is a wide blur: build it from the CSS-pixel image, not the supersampled one
+      const bloomSize = this.bloom.setSize.bind(this.bloom);
+      this.bloom.setSize = (w: number, h: number) => {
+        const k = 1 / this.renderer.getPixelRatio();
+        bloomSize(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+      };
       this.composer.addPass(this.bloom);
     }
     this.composer.addPass(new OutputPass());
@@ -195,9 +253,13 @@ export class Studio {
 
   resize() {
     const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
-    this.renderer.setSize(w, h, false);
-    this.composer.setSize(w, h);
     const pr = this.renderer.getPixelRatio();
+    // AO and refraction through glass are soft; render them at CSS-pixel resolution
+    if (this.ao) this.ao.scale = 1 / pr;
+    this.renderer.transmissionResolutionScale = Math.min(1, 1 / pr);
+    this.renderer.setSize(w, h, false);
+    this.composer.setPixelRatio(pr);
+    this.composer.setSize(w, h);
     this.film?.uniforms.uRes.value.set(w * pr, h * pr);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -229,6 +291,105 @@ export class Studio {
     return THREE.MathUtils.clamp((window.innerHeight - r.top) / (window.innerHeight + r.height), 0, 1);
   }
 
+  /**
+   * Steps the pixel ratio down while the median frame time stays above ~45fps,
+   * so slower machines keep a smooth scroll instead of a sharp slideshow.
+   * Never steps back up (that would oscillate); a window resize keeps the level.
+   */
+  private adapt(ms: number, now: number) {
+    if (now < this.settleUntil || this.dpr <= this.dprMin) return;
+    const f = this.frameTimes;
+    f.push(ms);
+    // judge about a second of frames at a time
+    if (f.length < 20 || f.reduce((a, b) => a + b, 0) < 1000) return;
+    const median = f.slice().sort((a, b) => a - b)[f.length >> 1];
+    f.length = 0;
+    if (median < 22) return;
+    this.dpr = Math.max(this.dprMin, Math.round((this.dpr - 0.25) * 4) / 4);
+    this.renderer.setPixelRatio(this.dpr);
+    this.resize();
+    this.settleUntil = now + 1500;
+  }
+
+  /** Hold off adaptive resolution for a moment (loading, big one-off work). */
+  settle(ms = 2000) {
+    this.settleUntil = performance.now() + ms;
+    this.frameTimes.length = 0;
+  }
+
+  /**
+   * Compiles every shader and uploads every texture up front, so the first
+   * time a building scrolls into view doesn't stall the frame.
+   */
+  async prewarm() {
+    const r = this.renderer;
+    const seen = new Set<THREE.Texture>();
+    this.scene.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      for (const m of Array.isArray(mat) ? mat : mat ? [mat] : [])
+        for (const v of Object.values(m)) if (v && (v as THREE.Texture).isTexture && !seen.has(v)) { seen.add(v); r.initTexture(v); }
+    });
+    // once on the GPU, the painted canvases are dead weight in RAM (tens of MB
+    // each for the 2048² paver sets): shrink them. Nothing repaints them later.
+    for (const t of seen) {
+      const c = t.image as HTMLCanvasElement | undefined;
+      if ((t as THREE.CanvasTexture).isCanvasTexture && c instanceof HTMLCanvasElement) c.width = c.height = 1;
+    }
+    this.releaseGeometryOnUpload();
+    await r.compileAsync(this.scene, this.camera);
+    // one throwaway 1×1 draw of everything, culling off, uploads every vertex
+    // buffer now (freeing the JS copies) instead of mid-scroll
+    const rt = new THREE.WebGLRenderTarget(1, 1), flat = new THREE.MeshBasicMaterial();
+    const culled: THREE.Object3D[] = [];
+    this.scene.traverse((o) => { if (o.frustumCulled) { o.frustumCulled = false; culled.push(o); } });
+    const auto = r.shadowMap.autoUpdate;
+    r.shadowMap.autoUpdate = false;
+    this.scene.overrideMaterial = flat;
+    r.setRenderTarget(rt);
+    r.render(this.scene, this.camera);
+    r.setRenderTarget(null);
+    this.scene.overrideMaterial = null;
+    r.shadowMap.autoUpdate = auto;
+    for (const o of culled) o.frustumCulled = true;
+    rt.dispose();
+    flat.dispose();
+    this.settle(2500);
+  }
+
+  /**
+   * Every vertex buffer is kept twice — once in JS, once on the GPU — and the
+   * hand-modelled students alone are hundreds of MB. Nothing reads the JS copy
+   * once uploaded, so drop it then. Bounds are computed first, since culling
+   * needs them and would otherwise build them lazily from the vertices.
+   */
+  private releaseGeometryOnUpload() {
+    const drop = function (this: THREE.BufferAttribute) { (this as { array: unknown }).array = null; };
+    const done = new Set<THREE.BufferGeometry>();
+    this.scene.traverse((o) => {
+      const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+      if (!g || done.has(g) || Object.keys(g.morphAttributes).length) return;
+      done.add(g);
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      if (!g.boundingBox) g.computeBoundingBox();
+      if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
+        // three bounds a skinned mesh by skinning every vertex on the CPU, the
+        // first time it is culled. Bound it by its bones instead (same timing,
+        // same pose), padded for the flesh around them — no vertices needed.
+        const sk = o as THREE.SkinnedMesh, box = new THREE.Box3(), inv = new THREE.Matrix4(), v = new THREE.Vector3();
+        sk.computeBoundingSphere = function () {
+          inv.copy(this.matrixWorld).invert();
+          box.makeEmpty();
+          for (const b of this.skeleton.bones) box.expandByPoint(v.setFromMatrixPosition(b.matrixWorld).applyMatrix4(inv));
+          this.boundingSphere ??= new THREE.Sphere();
+          box.getBoundingSphere(this.boundingSphere);
+          this.boundingSphere.radius += 0.4 / Math.max(1e-6, this.matrixWorld.getMaxScaleOnAxis());
+        };
+      }
+      for (const a of [...Object.values(g.attributes), g.index])
+        if (a && !(a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) (a as THREE.BufferAttribute).onUpload(drop);
+    });
+  }
+
   /** Sharper, softer-edged shadows for every shadow-casting light in the scene. */
   private tuneShadows() {
     this.scene.traverse((o) => {
@@ -242,12 +403,15 @@ export class Studio {
 
   start() {
     this.tuneShadows();
+    this.settle(2500);
     const loop = () => {
       this.raf = requestAnimationFrame(loop);
       const now = performance.now();
-      const dt = Math.min(0.05, (now - this.last) / 1000);
+      const ms = now - this.last;
+      const dt = Math.min(0.05, ms / 1000);
       this.last = now;
       if (!this.visible) return;
+      if (!document.hidden) this.adapt(ms, now);
       this.time += dt;
       this.pointer.lerp(this.target, 1 - Math.exp(-dt * 4));
       for (const f of this.frame) f(dt, this.time);

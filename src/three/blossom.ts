@@ -129,6 +129,45 @@ export function blossomGeometry(detail = 0.6, seed = 1) {
   return mergeGeometries([petals, heart])!;
 }
 
+/**
+ * The same flower for viewing from a few metres away (~1/6 the triangles):
+ * coarser petals, and the anthers — still the magenta dots that read as a pear
+ * blossom — as tiny octahedra; the hair-thin filaments and styles are dropped.
+ */
+export function blossomGeometryFar(seed = 1) {
+  let s = seed * 9301 + 49297;
+  const rnd = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  const parts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < 5; k++) {
+    const g = petalGeometry({ segU: 7, segV: 4, lift: 0.22 + rnd() * 0.12, cup: 0.28 + rnd() * 0.1 });
+    g.scale(0.96 + rnd() * 0.08, 0.95 + rnd() * 0.1, 1);
+    g.translate(0, 0.06, 0);
+    g.rotateZ((k / 5) * Math.PI * 2 + (rnd() - 0.5) * 0.12);
+    parts.push(g);
+  }
+  const cupG = new THREE.SphereGeometry(0.13, 8, 5);
+  cupG.scale(1, 1, 0.45);
+  parts.push(paint(cupG, STYLE));
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2 + rnd() * 0.2;
+    const r1 = 0.1 + rnd() * 0.04 + 0.12 + rnd() * 0.1, h = 0.26 + rnd() * 0.12;
+    const an = new THREE.OctahedronGeometry(0.034);
+    an.scale(1, 0.72, 0.62);
+    an.rotateZ(a);
+    an.translate(Math.cos(a) * r1, Math.sin(a) * r1, h + 0.015);
+    parts.push(paint(an, ANTHER));
+  }
+  for (let i = 0; i < 5; i++) {
+    const sg = new THREE.ConeGeometry(0.07, 0.3, 4, 1);
+    sg.rotateX(Math.PI / 2);
+    sg.rotateX(-1.25);
+    sg.translate(0, 0.16, -0.1);
+    sg.rotateZ((i / 5) * Math.PI * 2 + Math.PI / 5);
+    parts.push(paint(sg, SEPAL));
+  }
+  return mergeGeometries(parts.map((g) => (g.index ? g : (g.setIndex([...Array(g.attributes.position.count).keys()]), g))))!;
+}
+
 /** A closed bud: a slightly pointed white-pink ellipsoid on a green calyx. */
 export function budGeometry() {
   const b = new THREE.SphereGeometry(0.22, 16, 12);
@@ -225,12 +264,16 @@ export function branchGeometry(start: THREE.Vector3, dir: THREE.Vector3, length:
  * meshes. Returns the meshes so the caller can add them to a scene.
  */
 export function scatterBlossoms(points: THREE.Vector3[], perPoint: number, spread: number, scale: number, rnd: () => number, upBias = new THREE.Vector3(0, 0.4, 1)) {
-  const flowers = new THREE.InstancedMesh(blossomGeometry(0.55), petalMaterial({ transmission: 0, sheen: 0.6 }), points.length * perPoint);
-  const buds = new THREE.InstancedMesh(budGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }), Math.ceil(points.length * perPoint * 0.15));
-  const leaves = new THREE.InstancedMesh(leafGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide }), Math.ceil(points.length * perPoint * 0.25));
+  const budN = Math.ceil(points.length * perPoint * 0.15), leafN = Math.ceil(points.length * perPoint * 0.25);
+  const buds = new THREE.InstancedMesh(budGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }), budN);
+  const leaves = new THREE.InstancedMesh(leafGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide }), leafN);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
   const z = new THREE.Vector3(0, 0, 1);
-  let f = 0, b = 0, l = 0;
+  // flowers are binned into tiles; each tile draws the full flower near the
+  // camera and the light one beyond NEAR (where a flower is a few pixels wide)
+  const TILE = 8, NEAR = 11 + scale * 20;
+  const tiles = new Map<string, number[]>();
+  let flowerN = 0, b = 0, l = 0;
   for (const c of points)
     for (let k = 0; k < perPoint; k++) {
       p.set(c.x + (rnd() - 0.5) * spread, c.y + (rnd() - 0.5) * spread, c.z + (rnd() - 0.5) * spread);
@@ -239,17 +282,44 @@ export function scatterBlossoms(points: THREE.Vector3[], perPoint: number, sprea
       const s = scale * (0.75 + rnd() * 0.5);
       sc.setScalar(s);
       const roll = rnd();
-      if (roll < 0.12 && b < buds.count) buds.setMatrixAt(b++, m.compose(p, q, sc.setScalar(s * 0.8)));
-      else if (roll < 0.32 && l < leaves.count) leaves.setMatrixAt(l++, m.compose(p, q, sc.setScalar(s * 0.9)));
-      else if (f < flowers.count) flowers.setMatrixAt(f++, m.compose(p, q, sc));
+      if (roll < 0.12 && b < budN) buds.setMatrixAt(b++, m.compose(p, q, sc.setScalar(s * 0.8)));
+      else if (roll < 0.32 && l < leafN) leaves.setMatrixAt(l++, m.compose(p, q, sc.setScalar(s * 0.9)));
+      else if (flowerN < points.length * perPoint) {
+        const key = `${Math.floor(p.x / TILE)},${Math.floor(p.y / TILE)},${Math.floor(p.z / TILE)}`;
+        let t = tiles.get(key);
+        if (!t) tiles.set(key, (t = []));
+        t.push(...m.compose(p, q, sc).elements);
+        flowerN++;
+      }
     }
-  flowers.count = f;
   buds.count = b;
   leaves.count = l;
-  for (const im of [flowers, buds, leaves]) {
+  const nearGeo = blossomGeometry(0.55), farGeo = blossomGeometryFar();
+  const mat = petalMaterial({ transmission: 0, sheen: 0.6 });
+  const flowers: THREE.InstancedMesh[] = [];
+  for (const t of tiles.values()) {
+    const n = t.length / 16;
+    const pair = [nearGeo, farGeo].map((g) => {
+      const im = new THREE.InstancedMesh(g, mat, n);
+      im.instanceMatrix.array.set(t);
+      im.computeBoundingSphere();
+      return im;
+    });
+    const ctr = pair[0].boundingSphere!.center, rad = pair[0].boundingSphere!.radius;
+    // the shadow pass reuses whichever counts the camera pass last set
+    pair.forEach((im, k) => {
+      im.onBeforeRender = (_r, _s, cam) => {
+        const near = cam.position.distanceTo(ctr) - rad < NEAR;
+        im.count = near === (k === 0) ? n : 0;
+      };
+    });
+    flowers.push(...pair);
+  }
+  const all = [...flowers, buds, leaves];
+  for (const im of all) {
     im.castShadow = true;
     im.receiveShadow = true;
     im.instanceMatrix.needsUpdate = true;
   }
-  return [flowers, buds, leaves];
+  return all;
 }
